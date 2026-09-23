@@ -5,13 +5,24 @@ import type {
   AgentGoal,
   AgentRunResult,
   BrowserAgentOptions,
+  FallbackProvider,
   StepTelemetry,
 } from "./types.js";
+
+function cleanAnsi(text: string): string {
+  return text.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, "").trim();
+}
 
 export class BrowserAgent {
   private jev: JevDecisionEngine;
   private runner: StagehandRunner;
-  private options: Required<BrowserAgentOptions>;
+  private options: BrowserAgentOptions & {
+    headless: boolean;
+    confidenceThreshold: number;
+    maxSteps: number;
+    verbose: boolean;
+    fallbackProvider: FallbackProvider;
+  };
 
   constructor(options: BrowserAgentOptions = {}) {
     this.options = {
@@ -20,6 +31,10 @@ export class BrowserAgent {
       maxSteps: options.maxSteps ?? 15,
       verbose: options.verbose ?? true,
       fallbackProvider: options.fallbackProvider ?? "gemini",
+      onStep: options.onStep,
+      onLog: options.onLog,
+      onPageChange: options.onPageChange,
+      onScreenshot: options.onScreenshot,
     };
 
     this.jev = new JevDecisionEngine();
@@ -27,6 +42,20 @@ export class BrowserAgent {
       headless: this.options.headless,
       fallbackProvider: this.options.fallbackProvider,
     });
+  }
+
+  /**
+   * Captures and emits a screenshot if callback is registered.
+   */
+  private async emitScreenshot(): Promise<void> {
+    if (this.options.onScreenshot) {
+      try {
+        const b64 = await this.runner.captureScreenshotBase64();
+        if (b64) this.options.onScreenshot(b64);
+      } catch {
+        // Ignore transient capture errors
+      }
+    }
   }
 
   /**
@@ -38,16 +67,27 @@ export class BrowserAgent {
     let system1Count = 0;
     let system2Count = 0;
     let extractedData: any = undefined;
+    let isRunning = true;
+    let screencastTimer: NodeJS.Timeout | null = null;
 
     this.logHeader(goal);
 
     try {
       await this.runner.init();
 
+      // Start periodic screenshot capture for real-time viewport stream
+      if (this.options.onScreenshot) {
+        screencastTimer = setInterval(async () => {
+          if (!isRunning) return;
+          await this.emitScreenshot();
+        }, 400);
+      }
+
       // Navigate to initial URL or Google
       const startUrl = goal.startUrl || `https://www.google.com/search?q=${encodeURIComponent(goal.instruction)}`;
       this.logInfo(`Navigating to starting URL: ${chalk.underline(startUrl)}`);
       await this.runner.goto(startUrl);
+      await this.emitScreenshot();
 
       let lastActionDescription: string | undefined = `Navigated to ${startUrl}`;
       let lastUrl: string | undefined = undefined;
@@ -57,7 +97,9 @@ export class BrowserAgent {
         const stepStart = performance.now();
         const pageContext = await this.runner.getPageContext();
 
+        this.options.onPageChange?.(pageContext.title, pageContext.url);
         this.logStepHeader(step, pageContext.title, pageContext.url);
+        await this.emitScreenshot();
 
         // Stagnation Detection: If we remain on the same URL with 0 actionable candidates
         if (lastUrl && pageContext.url === lastUrl) {
@@ -108,32 +150,49 @@ export class BrowserAgent {
         // Check 3: Is the goal already complete on this screen?
         if (jevEval.isComplete) {
           this.logSuccess(`Goal achieved! Completion probability: ${Math.round(jevEval.completeProbability * 100)}%`);
-          history.push({
+          const stepTelemetry: StepTelemetry = {
             stepNumber: step,
             decisionPath: "TERMINATE_COMPLETE",
             actionDescription: "Detected goal completion",
             jevConfidence: jevEval.confidence,
             latencyMs: Math.round(performance.now() - stepStart),
             url: pageContext.url,
+            pageTitle: pageContext.title,
             isComplete: true,
+            completeProbability: jevEval.completeProbability,
             isDestructive: false,
-          });
+            destructiveProbability: jevEval.destructiveProbability,
+            pageCategory: jevEval.pageCategory,
+            targetActionIndex: jevEval.targetActionIndex,
+            candidates: candidates.slice(0, 10),
+          };
+          history.push(stepTelemetry);
+          this.options.onStep?.(stepTelemetry);
           break;
         }
 
         // Check 4: Is the action destructive? (Safety Guardrail)
         if (jevEval.isDestructive) {
           this.logWarning(`Destructive action detected (${Math.round(jevEval.destructiveProbability * 100)}% probability)! Action aborted for safety.`);
-          history.push({
+          const stepTelemetry: StepTelemetry = {
             stepNumber: step,
             decisionPath: "TERMINATE_GUARDRAIL",
             actionDescription: "Destructive action blocked by safety guardrail",
             jevConfidence: jevEval.confidence,
             latencyMs: Math.round(performance.now() - stepStart),
             url: pageContext.url,
+            pageTitle: pageContext.title,
             isComplete: false,
+            completeProbability: jevEval.completeProbability,
             isDestructive: true,
-          });
+            destructiveProbability: jevEval.destructiveProbability,
+            pageCategory: jevEval.pageCategory,
+            targetActionIndex: jevEval.targetActionIndex,
+            candidates: candidates.slice(0, 10),
+          };
+          history.push(stepTelemetry);
+          this.options.onStep?.(stepTelemetry);
+
           return {
             success: false,
             totalSteps: step,
@@ -161,40 +220,58 @@ export class BrowserAgent {
           lastActionDescription = chosenCandidate.description;
           system1Count++;
 
-          history.push({
+          const stepTelemetry: StepTelemetry = {
             stepNumber: step,
             decisionPath: "SYSTEM_1_JEV",
             actionDescription: chosenCandidate.description,
             jevConfidence: jevEval.confidence,
             latencyMs: Math.round(performance.now() - stepStart),
             url: pageContext.url,
+            pageTitle: pageContext.title,
             isComplete: false,
+            completeProbability: jevEval.completeProbability,
             isDestructive: false,
-          });
+            destructiveProbability: jevEval.destructiveProbability,
+            pageCategory: jevEval.pageCategory,
+            targetActionIndex: jevEval.targetActionIndex,
+            candidates: candidates.slice(0, 10),
+          };
+          history.push(stepTelemetry);
+          this.options.onStep?.(stepTelemetry);
+          await this.emitScreenshot();
         } else {
-          // SYSTEM 2 FALLBACK (Gemini Flash)
+          // SYSTEM 2 FALLBACK (Gemini Flash or Claude Sonnet)
           const reason = !hasValidCandidate
             ? "No candidate matched goal"
             : `Low Jev confidence (${Math.round(jevEval.confidence * 100)}% < ${Math.round(this.options.confidenceThreshold * 100)}%)`;
           this.logAction(
             "SYSTEM_2_GEMINI_FALLBACK",
-            `Escalating to Gemini Flash fallback (${reason})`
+            `Escalating to ${this.options.fallbackProvider === "claude" ? "Claude Sonnet" : "Gemini Flash"} fallback (${reason})`
           );
 
           await this.runner.fallbackAct(goal.instruction);
-          lastActionDescription = `Executed Gemini fallback for: "${goal.instruction}"`;
+          lastActionDescription = `Executed ${this.options.fallbackProvider} fallback for: "${goal.instruction}"`;
           system2Count++;
 
-          history.push({
+          const stepTelemetry: StepTelemetry = {
             stepNumber: step,
             decisionPath: "SYSTEM_2_GEMINI_FALLBACK",
             actionDescription: lastActionDescription,
             jevConfidence: jevEval.confidence,
             latencyMs: Math.round(performance.now() - stepStart),
             url: pageContext.url,
+            pageTitle: pageContext.title,
             isComplete: false,
+            completeProbability: jevEval.completeProbability,
             isDestructive: false,
-          });
+            destructiveProbability: jevEval.destructiveProbability,
+            pageCategory: jevEval.pageCategory,
+            targetActionIndex: jevEval.targetActionIndex,
+            candidates: candidates.slice(0, 10),
+          };
+          history.push(stepTelemetry);
+          this.options.onStep?.(stepTelemetry);
+          await this.emitScreenshot();
         }
 
         // Slight pause for DOM settling
@@ -208,6 +285,7 @@ export class BrowserAgent {
         this.logInfo(`Extracting answer: "${extractQuery}"`);
         extractedData = await this.runner.extract(extractQuery);
         this.logSuccess("Extraction complete!");
+        await this.emitScreenshot();
       }
 
       const totalLatencyMs = Math.round(performance.now() - overallStart);
@@ -224,15 +302,28 @@ export class BrowserAgent {
         terminationReason: "Goal completed successfully",
       };
     } finally {
+      isRunning = false;
+      if (screencastTimer) clearInterval(screencastTimer);
       await this.runner.close();
     }
   }
 
   // ==========================================
-  // Console Logging Helpers
+  // Console & Callback Logging Helpers
   // ==========================================
 
   private logHeader(goal: AgentGoal): void {
+    const fallbackLabel =
+      this.options.fallbackProvider === "claude"
+        ? "Anthropic Claude Sonnet (Databricks AI Gateway)"
+        : "Google Gemini Flash (Medium Thinking)";
+
+    this.options.onLog?.(`⚡ SYSTEM ONE BROWSER AGENT (JEV + STAGEHAND)`);
+    this.options.onLog?.(`Goal: ${goal.instruction}`);
+    if (goal.startUrl) this.options.onLog?.(`Start URL: ${goal.startUrl}`);
+    this.options.onLog?.(`Browser: ${this.options.headless ? "Headless" : "Headed (Live Window)"}`);
+    this.options.onLog?.(`Fallback: ${fallbackLabel}`);
+
     if (!this.options.verbose) return;
     console.log("\n" + chalk.bgCyan.black.bold(" ⚡ SYSTEM ONE BROWSER AGENT (JEV + STAGEHAND) "));
     console.log(chalk.cyan("━".repeat(60)));
@@ -240,15 +331,12 @@ export class BrowserAgent {
     if (goal.startUrl) console.log(chalk.bold("Start URL:   ") + chalk.gray(goal.startUrl));
     console.log(chalk.bold("Browser:     ") + (this.options.headless ? chalk.yellow("Headless") : chalk.green("Headed (Live Window)")));
     console.log(chalk.bold("Jev Model:   ") + chalk.magenta("System One (TypeSafe AI)"));
-    const fallbackLabel =
-      this.options.fallbackProvider === "claude"
-        ? chalk.yellow("Anthropic Claude Sonnet (Databricks AI Gateway)")
-        : chalk.blue("Google Gemini Flash (Medium Thinking)");
-    console.log(chalk.bold("Fallback:    ") + fallbackLabel);
+    console.log(chalk.bold("Fallback:    ") + (this.options.fallbackProvider === "claude" ? chalk.yellow(fallbackLabel) : chalk.blue(fallbackLabel)));
     console.log(chalk.cyan("━".repeat(60)) + "\n");
   }
 
   private logStepHeader(step: number, title: string, url: string): void {
+    this.options.onLog?.(`▶ STEP ${step}: [${title}] (${url})`);
     if (!this.options.verbose) return;
     console.log(chalk.yellow(`\n▶ STEP ${step}`));
     console.log(chalk.gray(`  Page:  ${title.slice(0, 60)}`));
@@ -256,11 +344,14 @@ export class BrowserAgent {
   }
 
   private logInfo(msg: string): void {
+    this.options.onLog?.(`ℹ ${cleanAnsi(msg)}`);
     if (!this.options.verbose) return;
     console.log(chalk.dim(`  ℹ ${msg}`));
   }
 
   private logJevResult(evaluation: any, latencyMs: number): void {
+    const summary = `⚡ Jev Reflex [${latencyMs}ms]: Action "${evaluation.targetActionLabel.slice(0, 45)}" | Conf: ${Math.round(evaluation.confidence * 100)}% | Complete: ${Math.round(evaluation.completeProbability * 100)}%`;
+    this.options.onLog?.(summary);
     if (!this.options.verbose) return;
     console.log(
       chalk.magenta(`  ⚡ Jev Response [${latencyMs}ms]: `) +
@@ -272,6 +363,7 @@ export class BrowserAgent {
   }
 
   private logAction(path: string, description: string): void {
+    this.options.onLog?.(path === "SYSTEM_1_JEV" ? `✔ [FAST-PATH] ${cleanAnsi(description)}` : `⚙ [FALLBACK] ${cleanAnsi(description)}`);
     if (!this.options.verbose) return;
     if (path === "SYSTEM_1_JEV") {
       console.log(chalk.green(`  ✔ [SYSTEM 1 FAST-PATH] `) + description);
@@ -281,10 +373,12 @@ export class BrowserAgent {
   }
 
   private logSuccess(msg: string): void {
+    this.options.onLog?.(`🎉 ${cleanAnsi(msg)}`);
     console.log(chalk.green.bold(`\n🎉 ${msg}`));
   }
 
   private logWarning(msg: string): void {
+    this.options.onLog?.(`⚠ ${cleanAnsi(msg)}`);
     console.log(chalk.red.bold(`\n⚠ ${msg}`));
   }
 
@@ -294,9 +388,10 @@ export class BrowserAgent {
     s2Count: number,
     totalTimeMs: number
   ): void {
-    if (!this.options.verbose) return;
     const s1Ratio = history.length > 0 ? Math.round((s1Count / history.length) * 100) : 0;
+    this.options.onLog?.(`🏁 RUN COMPLETED: ${history.length} steps in ${(totalTimeMs / 1000).toFixed(2)}s. Fast-path ratio: ${s1Ratio}%`);
 
+    if (!this.options.verbose) return;
     console.log("\n" + chalk.bgGreen.black.bold(" RUN COMPLETED "));
     console.log(chalk.green("━".repeat(50)));
     console.log(`Total Steps:         ${chalk.bold(history.length)}`);

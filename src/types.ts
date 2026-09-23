@@ -24,8 +24,14 @@ export interface StepTelemetry {
   jevConfidence: number;
   latencyMs: number;
   url: string;
+  pageTitle?: string;
   isComplete: boolean;
+  completeProbability?: number;
   isDestructive: boolean;
+  destructiveProbability?: number;
+  pageCategory?: string;
+  targetActionIndex?: number;
+  candidates?: CandidateAction[];
 }
 
 export interface JevStepEvaluation {
@@ -61,6 +67,14 @@ export interface BrowserAgentOptions {
   verbose?: boolean;
   /** System 2 fallback reasoning model provider (default: "gemini") */
   fallbackProvider?: FallbackProvider;
+  /** Streaming callback for each step telemetry update */
+  onStep?: (telemetry: StepTelemetry) => void;
+  /** Streaming callback for log messages */
+  onLog?: (msg: string) => void;
+  /** Streaming callback for page URL / title changes */
+  onPageChange?: (title: string, url: string) => void;
+  /** Streaming callback for live browser screenshots (base64 JPEG) */
+  onScreenshot?: (base64: string) => void;
 }
 
 export interface AgentRunResult {

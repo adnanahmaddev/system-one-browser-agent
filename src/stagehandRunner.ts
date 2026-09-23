@@ -99,6 +99,19 @@ export class StagehandRunner {
   }
 
   /**
+   * Captures the current browser viewport as a base64-encoded JPEG image.
+   */
+  async captureScreenshotBase64(): Promise<string | null> {
+    try {
+      const page = await this.getPage();
+      const buffer = await page.screenshot();
+      return buffer ? Buffer.from(buffer).toString("base64") : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Discovers interactive candidates on the page matching an intent instruction.
    */
   async observeCandidates(instruction: string): Promise<CandidateAction[]> {

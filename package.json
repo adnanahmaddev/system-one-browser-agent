@@ -6,6 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "tsx src/index.ts",
+    "server": "tsx src/server.ts",
+    "ui": "concurrently -k -p \"[{name}]\" -n \"AGENT,NEXT\" -c \"magenta,cyan\" \"tsx src/server.ts\" \"npm --prefix ui run dev\"",
     "quickstart": "tsx examples/quickstart.ts",
     "benchmark": "tsx examples/benchmark-comparison.ts",
     "build": "tsc"
@@ -17,10 +19,13 @@
     "chalk": "^5.4.1",
     "dotenv": "^16.4.7",
     "playwright": "^1.63.0",
+    "ws": "^8.21.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.5",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^10.0.5",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }

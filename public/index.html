@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System One — Autonomous Browser Agent</title>
+  <meta name="description" content="High-speed dual-process autonomous browser agent harness combining Jev System 1 reflex and Stagehand with System 2 fallback.">
+  <meta name="color-scheme" content="light dark">
+  
+  <!-- Prevent FOUC with instant theme initialization -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem("systemone-theme") || "system";
+      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const effectiveTheme = savedTheme === "system" ? (systemDark ? "dark" : "light") : savedTheme;
+      document.documentElement.setAttribute("data-theme", effectiveTheme);
+      document.querySelector('meta[name="color-scheme"]').content = effectiveTheme;
+    })();
+  </script>
+
+  <!-- Modern typography (Inter & JetBrains Mono) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <!-- Notion-style Top Bar -->
+  <header class="top-nav">
+    <div class="nav-left">
+      <div class="breadcrumb">
+        <span class="workspace-icon">⚡</span>
+        <span class="workspace-name">System One</span>
+        <span class="divider">/</span>
+        <span class="page-title">Agent Console</span>
+      </div>
+      <div class="status-indicator" id="statusPill">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Ready</span>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <div class="badge jev-badge" title="Jev System One Reflex Latency">
+        <span class="badge-icon">⚡</span>
+        <span class="badge-text">Jev ~70ms Reflex</span>
+      </div>
+
+      <!-- Segmented Dynamic Theme Switcher -->
+      <div class="theme-switcher" role="radiogroup" aria-label="Color theme">
+        <button class="theme-btn" data-theme-val="light" id="themeBtnLight" title="Light Theme" aria-label="Light mode">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button class="theme-btn" data-theme-val="dark" id="themeBtnDark" title="Dark Theme" aria-label="Dark mode">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="theme-btn active" data-theme-val="system" id="themeBtnSystem" title="Follow System" aria-label="System mode">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Document Container -->
+  <main class="page-container">
+    <!-- Notion Header Section -->
+    <section class="doc-header">
+      <div class="doc-icon">🤖</div>
+      <h1 class="doc-title">Autonomous Browser Agent</h1>
+      <p class="doc-description">
+        Dual-process browser automation harness. Sub-150ms reflexive element choices are resolved by <strong>TypeSafe AI Jev</strong>, while complex reasoning escalates to <strong>System 2</strong> (Gemini Flash or Claude Sonnet).
+      </p>
+    </section>
+
+    <!-- Goal Composer Callout Block -->
+    <section class="notion-callout composer-card">
+      <form id="agentForm" class="composer-form">
+        <div class="form-row">
+          <label for="goalInput" class="form-label">Goal / Objective</label>
+          <div class="input-with-action">
+            <input 
+              type="text" 
+              id="goalInput" 
+              class="notion-input" 
+              placeholder="e.g. Find distance between pcsir phase 1 and cbtl johar town" 
+              required 
+              autocomplete="off"
+            />
+            <button type="submit" id="startBtn" class="notion-btn primary-btn">
+              <span class="btn-icon">▶</span>
+              <span class="btn-text">Run Agent</span>
+            </button>
+            <button type="button" id="stopBtn" class="notion-btn stop-btn hidden">
+              <span class="btn-icon">⏹</span>
+              <span class="btn-text">Stop</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Optional Parameters Drawer -->
+        <div class="composer-options">
+          <div class="option-field">
+            <label for="urlInput" class="option-label">Start URL (Optional)</label>
+            <input 
+              type="url" 
+              id="urlInput" 
+              class="notion-input sub-input" 
+              placeholder="https://www.google.com/maps" 
+            />
+          </div>
+
+          <div class="option-field">
+            <label for="fallbackSelect" class="option-label">System 2 Fallback</label>
+            <select id="fallbackSelect" class="notion-select">
+              <option value="gemini" selected>Google Gemini Flash</option>
+              <option value="claude">Anthropic Claude Sonnet (Databricks Gateway)</option>
+            </select>
+          </div>
+
+          <div class="option-field">
+            <label for="headlessSelect" class="option-label">Browser Window</label>
+            <select id="headlessSelect" class="notion-select">
+              <option value="true" selected>Headless (Screencast in UI)</option>
+              <option value="false">Headed (Live OS Window + Screencast)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Quick 1-Click Presets -->
+        <div class="presets-row">
+          <span class="presets-label">Quick presets:</span>
+          <button type="button" class="preset-tag" data-goal="Find distance between pcsir phase 1 and cbtl johar town" data-url="https://www.google.com/maps">
+            📍 Google Maps Distance
+          </button>
+          <button type="button" class="preset-tag" data-goal="Find the top story on Hacker News" data-url="https://news.ycombinator.com">
+            📰 Hacker News Top Story
+          </button>
+          <button type="button" class="preset-tag" data-goal="Find star count of playwright repo" data-url="https://github.com/microsoft/playwright">
+            ⭐ GitHub Star Count
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Result Banner (Hidden initially) -->
+    <section id="resultCard" class="notion-callout result-callout hidden">
+      <div class="result-header">
+        <span class="result-icon" id="resultIcon">🎉</span>
+        <div class="result-summary">
+          <h2 class="result-title" id="resultTitle">Goal Completed</h2>
+          <div class="result-meta" id="resultMeta">7 steps • 14.2s • 71% Fast-Path</div>
+        </div>
+      </div>
+      <div class="result-body" id="resultBody"></div>
+    </section>
+
+    <!-- Two-Column Workspace: Live Browser Screencast + Telemetry Stream -->
+    <div class="workspace-grid">
+      <!-- Left: Live Browser Viewport -->
+      <section class="panel-card browser-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <span class="panel-icon">🌐</span>
+            <span class="panel-title">Live Browser Viewport</span>
+          </div>
+          <div class="browser-address-bar">
+            <span class="url-lock">🔒</span>
+            <span class="url-display" id="urlDisplay">about:blank</span>
+          </div>
+        </div>
+
+        <div class="viewport-canvas-container" id="viewportContainer">
+          <img id="liveViewportImg" alt="Live agent browser view" class="live-viewport-img hidden" />
+          <div id="viewportPlaceholder" class="viewport-placeholder">
+            <div class="placeholder-icon">🖥</div>
+            <div class="placeholder-text">Agent browser viewport will stream here live</div>
+            <div class="placeholder-sub">Click <strong>Run Agent</strong> or choose a preset above to begin</div>
+          </div>
+          <div id="recordingBadge" class="live-stream-badge hidden">
+            <span class="rec-dot"></span> LIVE
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Decision Telemetry & Action Stream -->
+      <section class="panel-card telemetry-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <span class="panel-icon">📊</span>
+            <span class="panel-title">Decision Telemetry & Steps</span>
+          </div>
+          <div class="telemetry-stats" id="telemetryStats">
+            <span class="stat-pill s1-pill" id="s1Stat">S1: 0</span>
+            <span class="stat-pill s2-pill" id="s2Stat">S2: 0</span>
+          </div>
+        </div>
+
+        <div class="steps-timeline" id="stepsTimeline">
+          <div class="timeline-empty" id="timelineEmpty">
+            <span>No steps executed yet. Start an agent run to view dual-process decision paths.</span>
+          </div>
+        </div>
+
+        <!-- Terminal Console Drawer -->
+        <div class="console-drawer">
+          <div class="console-header">
+            <span class="console-title">Execution Logs</span>
+            <button type="button" class="notion-link-btn" id="clearLogsBtn">Clear</button>
+          </div>
+          <div class="console-output" id="consoleOutput">
+            <div class="console-line system">System One ready. Awaiting instructions...</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

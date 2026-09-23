@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+
+  /* Notion Light Palette */
+  --bg-canvas: #ffffff;
+  --bg-surface: #fbfbfa;
+  --bg-input: #ffffff;
+  --bg-hover: rgba(55, 53, 47, 0.04);
+  --bg-active: rgba(55, 53, 47, 0.08);
+
+  --border-subtle: rgba(55, 53, 47, 0.09);
+  --border-default: rgba(55, 53, 47, 0.16);
+  --border-strong: rgba(55, 53, 47, 0.28);
+
+  --text-primary: #37352f;
+  --text-secondary: #787774;
+  --text-tertiary: #9b9a97;
+
+  /* Notion Semantic Tags */
+  --tag-green-bg: #edf6f5;
+  --tag-green-text: #0f7b6c;
+  --tag-blue-bg: #eef4f9;
+  --tag-blue-text: #0b6e99;
+  --tag-purple-bg: #f4eff9;
+  --tag-purple-text: #6940a5;
+  --tag-red-bg: #fbebe9;
+  --tag-red-text: #d44c47;
+  --tag-amber-bg: #fdf5ea;
+  --tag-amber-text: #d9730d;
+
+  --terminal-bg: #1e1e1e;
+  --terminal-text: #d4d4d4;
+  --terminal-dim: #858585;
+
+  --scrollbar-thumb: rgba(55, 53, 47, 0.16);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #191919;
+  --bg-surface: #202020;
+  --bg-input: #252525;
+  --bg-hover: rgba(255, 255, 255, 0.055);
+  --bg-active: rgba(255, 255, 255, 0.09);
+
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-default: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.28);
+
+  --text-primary: rgba(255, 255, 255, 0.90);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-tertiary: rgba(255, 255, 255, 0.35);
+
+  --tag-green-bg: rgba(77, 171, 154, 0.18);
+  --tag-green-text: #4dab9a;
+  --tag-blue-bg: rgba(82, 156, 202, 0.18);
+  --tag-blue-text: #529cca;
+  --tag-purple-bg: rgba(154, 109, 215, 0.18);
+  --tag-purple-text: #9a6dd7;
+  --tag-red-bg: rgba(235, 87, 87, 0.18);
+  --tag-red-text: #eb5757;
+  --tag-amber-bg: rgba(255, 179, 71, 0.18);
+  --tag-amber-text: #ffb347;
+
+  --terminal-bg: #141414;
+  --terminal-text: #e0e0e0;
+  --terminal-dim: #707070;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-canvas: #191919;
+    --bg-surface: #202020;
+    --bg-input: #252525;
+    --bg-hover: rgba(255, 255, 255, 0.055);
+    --bg-active: rgba(255, 255, 255, 0.09);
+
+    --border-subtle: rgba(255, 255, 255, 0.09);
+    --border-default: rgba(255, 255, 255, 0.16);
+    --border-strong: rgba(255, 255, 255, 0.28);
+
+    --text-primary: rgba(255, 255, 255, 0.90);
+    --text-secondary: rgba(255, 255, 255, 0.55);
+    --text-tertiary: rgba(255, 255, 255, 0.35);
+
+    --tag-green-bg: rgba(77, 171, 154, 0.18);
+    --tag-green-text: #4dab9a;
+    --tag-blue-bg: rgba(82, 156, 202, 0.18);
+    --tag-blue-text: #529cca;
+    --tag-purple-bg: rgba(154, 109, 215, 0.18);
+    --tag-purple-text: #9a6dd7;
+    --tag-red-bg: rgba(235, 87, 87, 0.18);
+    --tag-red-text: #eb5757;
+    --tag-amber-bg: rgba(255, 179, 71, 0.18);
+    --tag-amber-text: #ffb347;
+
+    --terminal-bg: #141414;
+    --terminal-text: #e0e0e0;
+    --terminal-dim: #707070;
+
+    --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  }
+}
+
+body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  min-height: 100vh;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
