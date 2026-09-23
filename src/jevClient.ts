@@ -1,17 +1,32 @@
 import { TypeSafeClient, choice, noul } from "@typesafe-ai/sdk";
 import type { CandidateAction, JevStepEvaluation } from "./types.js";
 
+export interface JevDecisionEngineOptions {
+  apiKey?: string;
+  /** Noul probability above which the goal counts as achieved (default: 0.82) */
+  completionThreshold?: number;
+  /** Noul probability above which an action is blocked as destructive (default: 0.75) */
+  destructiveThreshold?: number;
+}
+
 export class JevDecisionEngine {
   private client: TypeSafeClient;
+  private completionThreshold: number;
+  private destructiveThreshold: number;
 
-  constructor(apiKey?: string) {
-    const key = apiKey || process.env.TYPESAFE_API_KEY;
+  constructor(options: JevDecisionEngineOptions | string = {}) {
+    const opts: JevDecisionEngineOptions =
+      typeof options === "string" ? { apiKey: options } : options;
+
+    const key = opts.apiKey || process.env.TYPESAFE_API_KEY;
     if (!key) {
       throw new Error(
         "TYPESAFE_API_KEY is not set. Please add it to your .env file or pass it to constructor."
       );
     }
     this.client = new TypeSafeClient({ apiKey: key });
+    this.completionThreshold = opts.completionThreshold ?? 0.82;
+    this.destructiveThreshold = opts.destructiveThreshold ?? 0.75;
   }
 
   /**
@@ -68,8 +83,13 @@ export class JevDecisionEngine {
         is_complete: noul(
           "Based on the page title, URL, and visible content, has the user's objective already been achieved or the target information found?"
         ),
+        // NOTE: this is deliberately scoped to the *candidate set*, not to a single
+        // chosen action, because all questions resolve in one parallel request and
+        // the target choice is not known yet. It therefore answers "is this screen
+        // one where acting is dangerous?", which is a coarser but well-posed
+        // question. Per-candidate destructiveness would need a second round-trip.
         is_destructive: noul(
-          "Would executing the next step trigger a financial payment, order placement, account deletion, or irreversible data loss?"
+          "Do the candidate actions listed for this screen include committing a financial payment, placing an order, deleting an account, or causing irreversible data loss?"
         ),
         page_category: choice(
           "What is the primary category of the current screen?",
@@ -106,9 +126,9 @@ export class JevDecisionEngine {
     const evaluation: JevStepEvaluation = {
       targetActionIndex: targetIndex,
       targetActionLabel: targetLabel,
-      isComplete: answers.is_complete.noul > 0.82,
+      isComplete: answers.is_complete.noul > this.completionThreshold,
       completeProbability: answers.is_complete.noul,
-      isDestructive: answers.is_destructive.noul > 0.75,
+      isDestructive: answers.is_destructive.noul > this.destructiveThreshold,
       destructiveProbability: answers.is_destructive.noul,
       confidence: answers.target.confidence,
       pageCategory: answers.page_category.choice,

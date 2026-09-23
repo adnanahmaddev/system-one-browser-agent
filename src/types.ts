@@ -4,6 +4,29 @@ export type StepDecisionPath =
   | "TERMINATE_COMPLETE"
   | "TERMINATE_GUARDRAIL";
 
+/**
+ * Why a run stopped. Only "completed" is an affirmative goal achievement; every
+ * other value means the agent gave up, was stopped, or was blocked.
+ */
+export type RunOutcome =
+  | "completed"
+  | "max_steps_exhausted"
+  | "stagnated"
+  | "anti_bot_blocked"
+  | "guardrail_blocked"
+  | "aborted"
+  | "error";
+
+export const OUTCOME_DESCRIPTIONS: Record<RunOutcome, string> = {
+  completed: "Jev verified the objective was achieved on the current page",
+  max_steps_exhausted: "Step budget exhausted before the objective was verified as complete",
+  stagnated: "Page state stopped changing across consecutive steps; no further progress possible",
+  anti_bot_blocked: "Blocked by a captcha or bot-detection challenge",
+  guardrail_blocked: "Safety guardrail blocked a potentially destructive action",
+  aborted: "Run was stopped by the operator",
+  error: "Run failed with an unrecoverable error",
+};
+
 export interface AgentGoal {
   /** The natural language objective (e.g. "Find the latest release version of Playwright on GitHub") */
   instruction: string;
@@ -22,7 +45,15 @@ export interface StepTelemetry {
   decisionPath: StepDecisionPath;
   actionDescription: string;
   jevConfidence: number;
+  /**
+   * Wall-clock time for the whole step, including the Stagehand `observe()` LLM
+   * round-trip and the action itself. This is NOT the Jev reflex time.
+   */
   latencyMs: number;
+  /** Time spent inside the Jev System One call alone (the actual reflex latency). */
+  jevLatencyMs: number;
+  /** Time spent in the Stagehand `observe()` LLM call that precedes every Jev decision. */
+  observeLatencyMs: number;
   url: string;
   pageTitle?: string;
   isComplete: boolean;
@@ -52,6 +83,12 @@ export interface CandidateAction {
   selector?: string;
   method?: string;
   arguments?: any[];
+  /**
+   * Index to disambiguate a selector that matches several elements. Set for the
+   * synthetic autocomplete-commit candidate, where the first visible match is
+   * not necessarily the first match.
+   */
+  nth?: number;
 }
 
 export type FallbackProvider = "gemini" | "claude";
@@ -61,12 +98,26 @@ export interface BrowserAgentOptions {
   headless?: boolean;
   /** Jev confidence threshold for fast-path execution (default: 0.55) */
   confidenceThreshold?: number;
+  /** Noul probability above which the goal counts as achieved (default: 0.82) */
+  completionThreshold?: number;
+  /** Noul probability above which an action is blocked as destructive (default: 0.75) */
+  destructiveThreshold?: number;
+  /**
+   * Consecutive steps with an identical page fingerprint (URL + visible text)
+   * before the run is declared stagnant (default: 3).
+   */
+  stagnationLimit?: number;
   /** Max steps for agent execution (default: 15) */
   maxSteps?: number;
   /** Enable verbose console logs (default: true) */
   verbose?: boolean;
   /** System 2 fallback reasoning model provider (default: "gemini") */
   fallbackProvider?: FallbackProvider;
+  /**
+   * Cooperative cancellation. When aborted the loop exits at its next checkpoint
+   * and the browser is closed. An LLM call already in flight is allowed to settle.
+   */
+  signal?: AbortSignal;
   /** Streaming callback for each step telemetry update */
   onStep?: (telemetry: StepTelemetry) => void;
   /** Streaming callback for log messages */
@@ -78,11 +129,23 @@ export interface BrowserAgentOptions {
 }
 
 export interface AgentRunResult {
+  /**
+   * True only when the run reached an affirmative end: Jev verified completion,
+   * or extraction was requested and returned data. Exhausting the step budget,
+   * stagnating, being aborted, or hitting a guardrail all report false.
+   */
   success: boolean;
+  /** Machine-readable reason the run stopped. */
+  outcome: RunOutcome;
+  /** True only when Jev verified the objective was achieved. */
+  goalCompleted: boolean;
+  /** Number of steps recorded in `history`. */
   totalSteps: number;
   totalLatencyMs: number;
   system1StepCount: number;
   system2StepCount: number;
+  /** Share of *action* steps taken on the System 1 fast path, 0–1. Excludes terminal pseudo-steps. */
+  system1Ratio: number;
   history: StepTelemetry[];
   extractedData?: any;
   terminationReason: string;

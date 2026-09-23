@@ -3,6 +3,9 @@ import type { CandidateAction, FallbackProvider } from "./types.js";
 import { createClaudeStagehandGenerator } from "./claudeClient.js";
 import { z } from "zod";
 
+/** Id of the synthetic candidate injected when an autocomplete dropdown is open. */
+export const AUTOCOMPLETE_CANDIDATE_ID = "candidate_autocomplete_commit";
+
 export interface StagehandRunnerOptions {
   headless?: boolean;
   modelName?: string;
@@ -71,10 +74,16 @@ export class StagehandRunner {
 
   /**
    * Navigates to a given URL and waits for basic load.
+   *
+   * Returns the HTTP status so the caller can tell a real page from an error
+   * page. Without it a 404 looks like a perfectly normal page with no actionable
+   * elements, and the agent will happily burn its whole step budget on it.
+   * Null means no response object (e.g. a same-document navigation).
    */
-  async goto(url: string): Promise<void> {
+  async goto(url: string): Promise<number | null> {
     const page = await this.getPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    return response ? response.status() : null;
   }
 
   /**
@@ -83,8 +92,8 @@ export class StagehandRunner {
   async getPageContext(): Promise<{ title: string; url: string; contentSnippet: string }> {
     const page = await this.getPage();
     const title = (await page.title()) || "Untitled";
-    const rawUrl = page.url();
-    const url = typeof rawUrl === "string" ? rawUrl : await rawUrl;
+    // Stagehand's Page.url() is async, unlike Playwright's.
+    const url = await page.url();
 
     // Extract visible textual snapshot (body text without scripts/styles)
     const contentSnippet = await page.evaluate(() => {
@@ -99,12 +108,16 @@ export class StagehandRunner {
   }
 
   /**
-   * Captures the current browser viewport as a base64-encoded JPEG image.
+   * Captures the current browser viewport as a base64-encoded JPEG.
+   *
+   * JPEG at moderate quality is deliberate: these frames are base64'd into JSON
+   * WebSocket messages several times per second, and the PNG default is roughly
+   * an order of magnitude larger for no visible benefit on a screencast.
    */
   async captureScreenshotBase64(): Promise<string | null> {
     try {
       const page = await this.getPage();
-      const buffer = await page.screenshot();
+      const buffer = await page.screenshot({ type: "jpeg", quality: 60 });
       return buffer ? Buffer.from(buffer).toString("base64") : null;
     } catch {
       return null;
@@ -135,9 +148,20 @@ export class StagehandRunner {
   }
 
   /**
-   * Fix 1: Detects if an active autocomplete/suggestion dropdown or listbox is visible in the DOM.
+   * Detects whether an active autocomplete/suggestion dropdown or listbox is visible.
+   *
+   * Returns the group `selector` together with the `nth` index of the first
+   * *visible* match. Both are required to act on it: autocomplete widgets
+   * routinely keep hidden template/placeholder rows at index 0, so
+   * `locator(selector).first()` would click the wrong (or an unclickable)
+   * element. Callers must use `locator(selector).nth(nth)`.
    */
-  async getActiveDropdownInfo(): Promise<{ hasDropdown: boolean; selector?: string; previewText?: string }> {
+  async getActiveDropdownInfo(): Promise<{
+    hasDropdown: boolean;
+    selector?: string;
+    nth?: number;
+    previewText?: string;
+  }> {
     try {
       const page = await this.getPage();
       return await page.evaluate(() => {
@@ -176,6 +200,7 @@ export class StagehandRunner {
                 return {
                   hasDropdown: true,
                   selector: sel,
+                  nth: i,
                   previewText: text.slice(0, 60),
                 };
               }
@@ -199,8 +224,7 @@ export class StagehandRunner {
 
       if (info.hasDropdown && info.selector) {
         try {
-          const locator = page.locator(info.selector).first();
-          await locator.click();
+          await page.locator(info.selector).nth(info.nth ?? 0).click();
           await page.waitForTimeout(800);
           return true;
         } catch {
@@ -232,20 +256,28 @@ export class StagehandRunner {
   async executeCandidateAction(action: CandidateAction): Promise<void> {
     if (!this.stagehand) throw new Error("Stagehand not initialized");
 
-    if (action.id === "candidate_autocomplete_commit" && action.selector) {
+    if (action.id === AUTOCOMPLETE_CANDIDATE_ID && action.selector) {
       const page = await this.getPage();
-      const locator = page.locator(action.selector).first();
-      await locator.click();
+      await page.locator(action.selector).nth(action.nth ?? 0).click();
       await page.waitForTimeout(800);
       return;
+    }
+
+    // Stagehand's Action schema requires a selector; `method` and `arguments`
+    // are optional and inferred when absent. A candidate with no selector cannot
+    // be fast-pathed at all and must go through the System 2 fallback.
+    if (!action.selector) {
+      throw new Error(
+        `Candidate "${action.description}" has no selector and cannot be fast-path executed.`
+      );
     }
 
     await this.stagehand.act({
       selector: action.selector,
       method: action.method,
-      arguments: action.arguments,
+      arguments: (action.arguments ?? []).map((a) => String(a)),
       description: action.description,
-    } as any);
+    });
 
     const page = await this.getPage();
     await page.waitForTimeout(500);
@@ -271,6 +303,18 @@ export class StagehandRunner {
     if (dropdownInfo.hasDropdown) {
       await this.commitTopSuggestionOrEnter();
     }
+  }
+
+  /**
+   * Cheap fingerprint of a page context, used to detect real stagnation.
+   *
+   * URL alone is not a progress signal: single-page apps, forms, and map views
+   * legitimately take many actions without the URL changing. Including the
+   * visible-text snapshot means "same URL, same rendered text" — which is what
+   * being genuinely stuck actually looks like.
+   */
+  static fingerprintPage(context: { url: string; contentSnippet: string }): string {
+    return `${context.url}::${context.contentSnippet.length}::${context.contentSnippet.slice(0, 400)}`;
   }
 
   /**

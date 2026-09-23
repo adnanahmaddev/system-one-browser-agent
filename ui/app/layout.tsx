@@ -29,14 +29,20 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
+              /* Keep the storage key in sync with lib/theme.ts THEME_STORAGE_KEY.
+                 A concrete data-theme is ALWAYS written, even if localStorage or
+                 matchMedia throw, because globals.css defines the dark palette
+                 only under [data-theme="dark"]. */
               (function() {
+                var mode = "light";
                 try {
-                  const saved = localStorage.getItem("systemone-theme") || "system";
-                  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-                  const mode = saved === "system" ? (dark ? "dark" : "light") : saved;
-                  document.documentElement.setAttribute("data-theme", mode);
-                  document.querySelector('meta[name="color-scheme"]').content = mode;
+                  var saved = localStorage.getItem("systemone-theme") || "system";
+                  var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+                  mode = saved === "system" ? (dark ? "dark" : "light") : saved;
                 } catch (e) {}
+                document.documentElement.setAttribute("data-theme", mode);
+                var meta = document.querySelector('meta[name="color-scheme"]');
+                if (meta) meta.content = mode;
               })();
             `,
           }}

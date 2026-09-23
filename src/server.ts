@@ -1,7 +1,4 @@
 import http from "node:http";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import dotenv from "dotenv";
 import { BrowserAgent } from "./browserAgent.js";
@@ -9,28 +6,55 @@ import type { FallbackProvider } from "./types.js";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = process.env.AGENT_PORT ? parseInt(process.env.AGENT_PORT, 10) : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3001);
 
-// MIME types for static assets
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-};
+/**
+ * Bind to loopback by default. This server launches a real browser and executes
+ * arbitrary instructions in it, so it must not be reachable from the network.
+ */
+const HOST = process.env.AGENT_HOST || "127.0.0.1";
 
-// Create HTTP server for static files & agent bridge
+/**
+ * Origins permitted to open a WebSocket or read the API.
+ *
+ * This is a security boundary, not a convenience: WebSocket handshakes are NOT
+ * subject to the same-origin policy or CORS, so without an Origin check any web
+ * page you happen to have open could connect to this port and drive the agent's
+ * browser (cross-site WebSocket hijacking). Set AGENT_ALLOWED_ORIGINS to a
+ * comma-separated list to extend it.
+ */
+const ALLOWED_ORIGINS = new Set(
+  (process.env.AGENT_ALLOWED_ORIGINS ||
+    `http://localhost:3000,http://127.0.0.1:3000,http://localhost:${PORT},http://127.0.0.1:${PORT}`)
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean)
+);
+
+/**
+ * A missing Origin header means a non-browser client (curl, a test script, the
+ * `ws` library). Those are allowed because the port is loopback-only; it is
+ * browser-originated cross-site requests that need blocking.
+ */
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.has(origin);
+}
+
+/**
+ * HTTP surface is the health endpoint only. This process is the agent bridge; the
+ * operator UI is the Next.js app in `ui/`, served by `next dev`/`next start` on
+ * its own port and talking to this one over the WebSocket.
+ */
 const server = http.createServer((req, res) => {
-  // CORS & Security headers
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+
+  // Echo only allowlisted origins. A wildcard here would let any site read the
+  // API responses from this port.
+  if (origin && isOriginAllowed(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -42,9 +66,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const reqUrl = req.url || "/";
-  const parsedUrl = new URL(reqUrl, `http://localhost:${PORT}`);
-  let pathname = parsedUrl.pathname;
+  if (origin && !isOriginAllowed(origin)) {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("403 Forbidden: origin not allowed");
+    return;
+  }
+
+  const pathname = new URL(req.url || "/", `http://localhost:${PORT}`).pathname;
 
   if (pathname === "/api/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -58,53 +86,29 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Normalize path to prevent path traversal
-  if (pathname === "/") pathname = "/index.html";
-  const filePath = path.join(PUBLIC_DIR, path.normalize(pathname).replace(/^(\.\.[\/\\])+/, ""));
-
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403, { "Content-Type": "text/plain" });
-    res.end("403 Forbidden");
-    return;
-  }
-
-  fs.stat(filePath, (err, stats) => {
-    if (err || !stats.isFile()) {
-      // Fallback to index.html for SPA-style routing if file missing
-      const indexPath = path.join(PUBLIC_DIR, "index.html");
-      fs.readFile(indexPath, (readErr, content) => {
-        if (readErr) {
-          res.writeHead(404, { "Content-Type": "text/plain" });
-          res.end("404 Not Found");
-        } else {
-          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(content);
-        }
-      });
-      return;
-    }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || "application/octet-stream";
-
-    fs.readFile(filePath, (readErr, content) => {
-      if (readErr) {
-        res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("500 Internal Server Error");
-      } else {
-        res.writeHead(200, { "Content-Type": contentType });
-        res.end(content);
-      }
-    });
-  });
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(
+    JSON.stringify({
+      error: "Not found",
+      hint: "This port is the agent WebSocket bridge. The UI runs separately from ui/ (npm --prefix ui run dev).",
+    })
+  );
 });
 
-// Create WebSocket server attached to HTTP server
-const wss = new WebSocketServer({ server });
+// Create WebSocket server attached to HTTP server.
+// verifyClient rejects cross-site handshakes; see ALLOWED_ORIGINS above for why
+// this cannot be left to CORS.
+const wss = new WebSocketServer({
+  server,
+  verifyClient: ({ origin }, done) => {
+    if (isOriginAllowed(origin)) return done(true);
+    console.warn(`Rejected WebSocket handshake from disallowed origin: ${origin}`);
+    done(false, 403, "Forbidden origin");
+  },
+});
 
 wss.on("connection", (ws: WebSocket) => {
   let activeAgent: BrowserAgent | null = null;
-  let isAborted = false;
 
   const send = (msg: object) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -127,9 +131,19 @@ wss.on("connection", (ws: WebSocket) => {
       const payload = JSON.parse(rawMessage.toString());
 
       if (payload.type === "stop") {
-        isAborted = true;
-        send({ type: "log", text: "⏹ Stopping agent run...", timestamp: Date.now() });
-        send({ type: "status", status: "idle" });
+        if (!activeAgent) {
+          send({ type: "status", status: "idle" });
+          return;
+        }
+        // Actually cancel the run. The agent exits at its next checkpoint and
+        // closes the browser; status stays "running" until that completes so the
+        // UI cannot claim idle while Chromium is still driving.
+        send({
+          type: "log",
+          text: "⏹ Stop requested — finishing the in-flight action, then closing the browser...",
+          timestamp: Date.now(),
+        });
+        activeAgent.stop();
         return;
       }
 
@@ -139,7 +153,13 @@ wss.on("connection", (ws: WebSocket) => {
           return;
         }
 
-        isAborted = false;
+        // One run per connection. Without this, a second "start" would launch a
+        // second browser and orphan the first agent reference.
+        if (activeAgent) {
+          send({ type: "error", error: "A run is already in progress. Stop it before starting another." });
+          return;
+        }
+
         send({ type: "status", status: "running" });
         send({ type: "clear" });
         send({
@@ -151,11 +171,12 @@ wss.on("connection", (ws: WebSocket) => {
         const fallback: FallbackProvider = payload.fallback === "claude" ? "claude" : "gemini";
         const headless = payload.headless !== false; // Default headless in UI for smooth canvas screencast
 
-        activeAgent = new BrowserAgent({
+        const agent = new BrowserAgent({
           headless,
           fallbackProvider: fallback,
           maxSteps: payload.maxSteps ? parseInt(payload.maxSteps, 10) : 15,
-          confidenceThreshold: 0.55,
+          confidenceThreshold:
+            typeof payload.confidenceThreshold === "number" ? payload.confidenceThreshold : 0.55,
           verbose: true,
           onStep: (telemetry) => {
             send({ type: "step", data: telemetry });
@@ -170,26 +191,25 @@ wss.on("connection", (ws: WebSocket) => {
             send({ type: "screenshot", base64 });
           },
         });
+        activeAgent = agent;
 
         try {
-          const result = await activeAgent.run({
+          const result = await agent.run({
             instruction: payload.goal,
             startUrl: payload.startUrl || undefined,
             extractInstruction: payload.extractInstruction || undefined,
           });
 
-          if (!isAborted) {
-            send({ type: "result", data: result });
-            send({ type: "status", status: "completed" });
-          }
+          // Always report the result, including for a stopped run — the operator
+          // should still see the steps and telemetry the run produced.
+          send({ type: "result", data: result });
+          send({ type: "status", status: result.success ? "completed" : "error" });
         } catch (runErr: any) {
-          if (!isAborted) {
-            send({
-              type: "error",
-              error: runErr?.message || "Execution encountered an error.",
-            });
-            send({ type: "status", status: "error" });
-          }
+          send({
+            type: "error",
+            error: runErr?.message || "Execution encountered an error.",
+          });
+          send({ type: "status", status: "error" });
         } finally {
           activeAgent = null;
         }
@@ -199,14 +219,20 @@ wss.on("connection", (ws: WebSocket) => {
     }
   });
 
+  // A closed socket must tear the browser down, otherwise closing the UI tab
+  // orphans a Chromium process for the remainder of the run.
   ws.on("close", () => {
-    isAborted = true;
-    activeAgent = null;
+    if (activeAgent) {
+      console.log("Client disconnected mid-run — aborting agent and closing browser.");
+      activeAgent.stop();
+    }
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`\n⚡ System One Web UI running at: http://localhost:${PORT}`);
-  console.log(`   - Static assets: ${PUBLIC_DIR}`);
-  console.log(`   - WebSocket:     ws://localhost:${PORT}\n`);
+server.listen(PORT, HOST, () => {
+  console.log(`\n⚡ System One agent service running at: http://${HOST}:${PORT}`);
+  console.log(`   - WebSocket:       ws://${HOST}:${PORT}`);
+  console.log(`   - Health:          http://${HOST}:${PORT}/api/health`);
+  console.log(`   - UI:              run \`npm --prefix ui run dev\` (http://localhost:3000)`);
+  console.log(`   - Allowed origins: ${[...ALLOWED_ORIGINS].join(", ")}\n`);
 });

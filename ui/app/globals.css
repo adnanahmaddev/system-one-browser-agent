@@ -1,7 +1,12 @@
 @import "tailwindcss";
 
+/* Tailwind's default `dark:` variant tracks prefers-color-scheme, which ignores
+   an explicit user choice. Bind it to the data-theme attribute the inline script
+   sets so `dark:` and the CSS variables above can never disagree. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   /* Notion Light Palette */
   --bg-canvas: #ffffff;
@@ -71,46 +76,13 @@
   --scrollbar-thumb: rgba(255, 255, 255, 0.18);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg-canvas: #191919;
-    --bg-surface: #202020;
-    --bg-input: #252525;
-    --bg-hover: rgba(255, 255, 255, 0.055);
-    --bg-active: rgba(255, 255, 255, 0.09);
-
-    --border-subtle: rgba(255, 255, 255, 0.09);
-    --border-default: rgba(255, 255, 255, 0.16);
-    --border-strong: rgba(255, 255, 255, 0.28);
-
-    --text-primary: rgba(255, 255, 255, 0.90);
-    --text-secondary: rgba(255, 255, 255, 0.55);
-    --text-tertiary: rgba(255, 255, 255, 0.35);
-
-    --tag-green-bg: rgba(77, 171, 154, 0.18);
-    --tag-green-text: #4dab9a;
-    --tag-blue-bg: rgba(82, 156, 202, 0.18);
-    --tag-blue-text: #529cca;
-    --tag-purple-bg: rgba(154, 109, 215, 0.18);
-    --tag-purple-text: #9a6dd7;
-    --tag-red-bg: rgba(235, 87, 87, 0.18);
-    --tag-red-text: #eb5757;
-    --tag-amber-bg: rgba(255, 179, 71, 0.18);
-    --tag-amber-text: #ffb347;
-
-    --terminal-bg: #141414;
-    --terminal-text: #e0e0e0;
-    --terminal-dim: #707070;
-
-    --scrollbar-thumb: rgba(255, 255, 255, 0.18);
-  }
-}
+/* No prefers-color-scheme block: layout.tsx's inline script always resolves
+   "system" to a concrete data-theme before first paint, so the dark palette is
+   defined exactly once above. */
 
 body {
   background-color: var(--bg-canvas);
   color: var(--text-primary);
-  min-height: 100vh;
   scrollbar-color: var(--scrollbar-thumb) transparent;
   transition: background-color 0.15s ease, color 0.15s ease;
 }

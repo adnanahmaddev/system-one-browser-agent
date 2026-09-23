@@ -2,18 +2,33 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { TopNav } from "@/components/TopNav";
-import { ComposerCard } from "@/components/ComposerCard";
+import { ComposerCard, type ComposerForm } from "@/components/ComposerCard";
 import { TelemetryBar } from "@/components/TelemetryBar";
 import { LiveViewport } from "@/components/LiveViewport";
 import { StepTimeline } from "@/components/StepTimeline";
 import { StepInspector } from "@/components/StepInspector";
 import { ConsoleDrawer } from "@/components/ConsoleDrawer";
 import { ResultBanner } from "@/components/ResultBanner";
-import type { StepTelemetry, AgentRunResult, ConsoleLogLine } from "@/types/agent";
+import type {
+  StepTelemetry,
+  AgentRunResult,
+  ConsoleLogLine,
+  ConnectionStatus,
+} from "@/types/agent";
+
+/** Keeps the log buffer from growing without bound over a long session. */
+const MAX_LOG_LINES = 1000;
+
+const INITIAL_FORM: ComposerForm = {
+  goal: "",
+  startUrl: "",
+  fallback: "gemini",
+  headless: true,
+};
 
 export default function Home() {
-  const [status, setStatus] = useState<"idle" | "connecting" | "running" | "completed" | "error">("connecting");
-  const [isRunning, setIsRunning] = useState(false);
+  const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [form, setForm] = useState<ComposerForm>(INITIAL_FORM);
   const [currentUrl, setCurrentUrl] = useState("about:blank");
   const [pageTitle, setPageTitle] = useState("");
   const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
@@ -21,7 +36,11 @@ export default function Home() {
   const [selectedStep, setSelectedStep] = useState<StepTelemetry | null>(null);
   const [logs, setLogs] = useState<ConsoleLogLine[]>([]);
   const [result, setResult] = useState<AgentRunResult | null>(null);
-  const [fallbackProvider, setFallbackProvider] = useState<"gemini" | "claude">("gemini");
+  const [isTheater, setIsTheater] = useState(false);
+
+  // `status` is the single source of truth — a separate isRunning flag could
+  // disagree with it after an error frame.
+  const isRunning = status === "running";
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -30,198 +49,203 @@ export default function Home() {
     if (!forceType) {
       if (text.includes("✔ [FAST-PATH]")) type = "fastpath";
       else if (text.includes("⚙ [FALLBACK]")) type = "fallback";
-      else if (text.includes("🎉") || text.includes("Goal achieved") || text.includes("RUN COMPLETED")) type = "success";
+      else if (text.includes("🎉") || text.includes("Goal achieved") || text.includes("SUCCEEDED"))
+        type = "success";
       else if (text.includes("⚠") || text.includes("Destructive")) type = "warn";
     }
 
-    const newLine: ConsoleLogLine = {
+    const line: ConsoleLogLine = {
       id: `${Date.now()}-${Math.random()}`,
       timestamp: new Date().toTimeString().split(" ")[0],
       text,
       type,
     };
 
-    setLogs((prev) => [...prev, newLine]);
+    setLogs((prev) => (prev.length >= MAX_LOG_LINES ? [...prev.slice(1), line] : [...prev, line]));
   }, []);
 
-  // WebSocket Connection
   useEffect(() => {
-    let ws: WebSocket;
-    let reconnectTimer: NodeJS.Timeout;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+    // Guards against a reconnect firing after the effect has been torn down,
+    // which would otherwise leave an orphaned socket setting state.
+    let cancelled = false;
 
     const connect = () => {
+      if (cancelled) return;
       setStatus("connecting");
       const host = window.location.hostname || "localhost";
-      const wsUrl = `ws://${host}:3001`;
-
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(`ws://${host}:3001`);
       wsRef.current = ws;
 
       ws.onopen = () => {
         setStatus("idle");
-        appendLog("Connected to System One Agent Service (ws://localhost:3001)", "system");
+        appendLog("Connected to System One agent service (ws://localhost:3001)", "system");
       };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
 
-          if (msg.type === "status") {
-            if (msg.status === "running") {
-              setIsRunning(true);
-              setStatus("running");
-            } else if (msg.status === "completed") {
-              setIsRunning(false);
-              setStatus("completed");
-            } else {
-              setIsRunning(false);
-              setStatus("idle");
-            }
-          } else if (msg.type === "clear") {
-            setSteps([]);
-            setResult(null);
-            setScreenshotBase64(null);
-          } else if (msg.type === "page") {
-            if (msg.url) setCurrentUrl(msg.url);
-            if (msg.title) setPageTitle(msg.title);
-          } else if (msg.type === "screenshot") {
-            if (msg.base64) setScreenshotBase64(msg.base64);
-          } else if (msg.type === "step") {
-            setSteps((prev) => [...prev, msg.data]);
-          } else if (msg.type === "log") {
-            appendLog(msg.text);
-          } else if (msg.type === "result") {
-            setResult(msg.data);
-          } else if (msg.type === "error") {
-            appendLog(`ERROR: ${msg.error}`, "warn");
-            setStatus("error");
+          switch (msg.type) {
+            case "status":
+              if (msg.status === "running") setStatus("running");
+              else if (msg.status === "completed") setStatus("completed");
+              else if (msg.status === "error") setStatus("error");
+              else setStatus("idle");
+              break;
+            case "clear":
+              setSteps([]);
+              setResult(null);
+              setScreenshotBase64(null);
+              setSelectedStep(null);
+              break;
+            case "page":
+              if (msg.url) setCurrentUrl(msg.url);
+              if (msg.title) setPageTitle(msg.title);
+              break;
+            case "screenshot":
+              if (msg.base64) setScreenshotBase64(msg.base64);
+              break;
+            case "step":
+              setSteps((prev) => [...prev, msg.data]);
+              break;
+            case "log":
+              appendLog(msg.text);
+              break;
+            case "result":
+              setResult(msg.data);
+              break;
+            case "error":
+              appendLog(`ERROR: ${msg.error}`, "warn");
+              setStatus("error");
+              break;
           }
         } catch (err) {
-          console.error("WS Parse error:", err);
+          console.error("WS parse error:", err);
         }
       };
 
       ws.onclose = () => {
+        if (cancelled) return;
         setStatus("connecting");
         appendLog("Agent service connection dropped. Retrying in 2.5s...", "warn");
         reconnectTimer = setTimeout(connect, 2500);
       };
 
-      ws.onerror = () => {
-        ws.close();
-      };
+      ws.onerror = () => ws?.close();
     };
 
     connect();
 
     return () => {
+      cancelled = true;
       clearTimeout(reconnectTimer);
-      if (ws) ws.close();
+      ws?.close();
     };
   }, [appendLog]);
 
-  const handleStart = ({
-    goal,
-    startUrl,
-    fallback,
-    headless,
-  }: {
-    goal: string;
-    startUrl?: string;
-    fallback: "gemini" | "claude";
-    headless: boolean;
-  }) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      alert("Agent service is not connected. Please ensure the agent backend is running on port 3001.");
-      return;
+  const handleStart = useCallback(
+    (override?: Partial<ComposerForm>) => {
+      const next = { ...form, ...override };
+      if (!next.goal.trim()) return;
+
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        appendLog("Cannot start: agent service is not connected on port 3001.", "warn");
+        return;
+      }
+
+      setResult(null);
+      setSteps([]);
+      setSelectedStep(null);
+
+      socket.send(
+        JSON.stringify({
+          type: "start",
+          goal: next.goal,
+          startUrl: next.startUrl || undefined,
+          fallback: next.fallback,
+          headless: next.headless,
+        })
+      );
+    },
+    [form, appendLog]
+  );
+
+  const handleStop = useCallback(() => {
+    const socket = wsRef.current;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "stop" }));
     }
+  }, []);
 
-    setFallbackProvider(fallback);
-    setResult(null);
-    setSteps([]);
+  // Owned here rather than in the composer so Escape can be prioritised
+  // against modal and theater state, which the composer cannot see.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (!isRunning) handleStart();
+        return;
+      }
+      if (e.key === "Escape") {
+        if (selectedStep) setSelectedStep(null);
+        else if (isTheater) setIsTheater(false);
+        else if (isRunning) handleStop();
+      }
+    };
 
-    wsRef.current.send(
-      JSON.stringify({
-        type: "start",
-        goal,
-        startUrl,
-        fallback,
-        headless,
-      })
-    );
-  };
-
-  const handleStop = () => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
-    }
-  };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isRunning, isTheater, selectedStep, handleStart, handleStop]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+    <div className="h-screen flex flex-col overflow-hidden bg-[var(--bg-canvas)] text-[var(--text-primary)]">
       <TopNav status={status} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* Document Header */}
-        <section className="space-y-1.5">
-          <div className="text-3xl select-none">🤖</div>
-          <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-            Autonomous Browser Agent
-          </h1>
-          <p className="text-xs sm:text-sm text-[var(--text-secondary)] max-w-3xl leading-relaxed">
-            Dual-process browser automation harness. Sub-150ms reflexive element choices are resolved by{" "}
-            <strong className="text-[var(--text-primary)]">TypeSafe AI Jev</strong>, while complex creative reasoning escalates to{" "}
-            <strong className="text-[var(--text-primary)]">System 2</strong> (Gemini Flash or Claude Sonnet).
-          </p>
-        </section>
+      <ComposerCard
+        form={form}
+        onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+        isRunning={isRunning}
+        onStart={handleStart}
+        onStop={handleStop}
+      />
 
-        {/* Telemetry Speedometer */}
-        <TelemetryBar steps={steps} isRunning={isRunning} fallbackProvider={fallbackProvider} />
+      <TelemetryBar steps={steps} fallbackProvider={form.fallback} />
 
-        {/* Goal Composer Callout */}
-        <ComposerCard isRunning={isRunning} onStart={handleStart} onStop={handleStop} />
-
-        {/* Goal Result Banner */}
-        <ResultBanner result={result} />
-
-        {/* Two-Column Grid: Live Viewport + Steps / Logs */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Left Column: Live Browser Viewport */}
-          <section className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
-              <span>Live Browser Viewport</span>
-              {isRunning && (
-                <span className="text-[11px] font-mono text-[var(--tag-green-text)] lowercase">
-                  active screencast (400ms)
-                </span>
-              )}
-            </div>
-            <LiveViewport
-              screenshotBase64={screenshotBase64}
-              currentUrl={currentUrl}
-              isRunning={isRunning}
-              pageTitle={pageTitle}
-            />
-          </section>
-
-          {/* Right Column: Steps Timeline & Console Logs */}
-          <section className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
-                <span>Executed Steps & Reflex Telemetry</span>
-                <span className="text-[11px] font-mono text-[var(--text-tertiary)] lowercase">
-                  click step to inspect
-                </span>
-              </div>
-              <StepTimeline steps={steps} onSelectStep={(step) => setSelectedStep(step)} />
-            </div>
-
-            <ConsoleDrawer logs={logs} onClear={() => setLogs([])} />
-          </section>
+      {/* minmax(0,1fr) rather than 1fr: grid items default to min-width:auto, so a
+          wide child — a 1280px screencast frame, or a long unbroken Maps URL —
+          expands the track and pushes the sidebar off-screen. */}
+      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] overflow-hidden">
+        <div className="min-h-0 min-w-0 overflow-hidden p-2">
+          <LiveViewport
+            screenshotBase64={screenshotBase64}
+            currentUrl={currentUrl}
+            isRunning={isRunning}
+            pageTitle={pageTitle}
+            isTheater={isTheater}
+            onToggleTheater={() => setIsTheater((v) => !v)}
+          />
         </div>
+
+        {/* The column itself does not scroll: the step list owns the only scroll
+            area, so the result banner and the log drawer stay pinned in view. */}
+        <aside className="min-h-0 min-w-0 flex flex-col overflow-hidden border-l border-[var(--border-subtle)]">
+          <ResultBanner result={result} />
+          <StepTimeline steps={steps} onSelectStep={setSelectedStep} />
+          <ConsoleDrawer logs={logs} onClear={() => setLogs([])} />
+        </aside>
       </main>
 
-      {/* Interactive Step Inspector Modal */}
+      {isTheater && (
+        <div
+          className="fixed inset-0 z-30 bg-black/70"
+          onClick={() => setIsTheater(false)}
+          aria-hidden
+        />
+      )}
+
       <StepInspector step={selectedStep} onClose={() => setSelectedStep(null)} />
     </div>
   );

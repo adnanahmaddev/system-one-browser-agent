@@ -7,6 +7,45 @@ export interface ClaudeConfig {
   authToken: string;
   model: string;
   customHeaders: Record<string, string>;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+/** A content block in Stagehand's LLM message format. */
+type StagehandBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; toolUseId: string; content: StagehandBlock[]; isError?: boolean };
+
+/**
+ * Translates one Stagehand content block into Anthropic wire format.
+ *
+ * Image and tool blocks must be preserved, not flattened to text: Stagehand
+ * sends page screenshots as image blocks, and dropping them leaves the model
+ * choosing visual elements it cannot see.
+ */
+function toAnthropicBlock(block: StagehandBlock): any | null {
+  switch (block.type) {
+    case "text":
+      return block.text ? { type: "text", text: block.text } : null;
+    case "image":
+      return {
+        type: "image",
+        source: { type: "base64", media_type: block.mimeType || "image/png", data: block.data },
+      };
+    case "tool_use":
+      return { type: "tool_use", id: block.id, name: block.name, input: block.input ?? {} };
+    case "tool_result":
+      return {
+        type: "tool_result",
+        tool_use_id: block.toolUseId,
+        content: (block.content ?? []).map(toAnthropicBlock).filter(Boolean),
+        ...(block.isError ? { is_error: true } : {}),
+      };
+    default:
+      return null;
+  }
 }
 
 /**
@@ -59,7 +98,16 @@ export function loadClaudeSettings(): ClaudeConfig {
     }
   }
 
-  return { baseUrl, authToken, model, customHeaders };
+  const maxTokens = parseInt(
+    envSettings.ANTHROPIC_MAX_TOKENS || process.env.ANTHROPIC_MAX_TOKENS || "8192",
+    10
+  );
+  const timeoutMs = parseInt(
+    envSettings.ANTHROPIC_TIMEOUT_MS || process.env.ANTHROPIC_TIMEOUT_MS || "120000",
+    10
+  );
+
+  return { baseUrl, authToken, model, customHeaders, maxTokens, timeoutMs };
 }
 
 /**
@@ -75,31 +123,45 @@ export function createClaudeStagehandGenerator(configOverride?: Partial<ClaudeCo
   return async function generateWithClaude(params: any): Promise<any> {
     const url = `${config.baseUrl.replace(/\/+$/, "")}/v1/messages`;
 
-    // 1. Format messages for Anthropic
-    const anthropicMessages = (params.messages || []).map((m: any) => {
-      let content = "";
-      if (typeof m.content === "string") {
-        content = m.content;
-      } else if (Array.isArray(m.content)) {
-        content = m.content.map((b: any) => b.text || "").filter(Boolean).join("\n");
-      } else if (m.content && typeof m.content === "object") {
-        content = m.content.text || JSON.stringify(m.content);
-      }
-      return {
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: content.trim() || "Proceed with observation",
-      };
-    });
+    // 1. Translate messages, preserving every block type (text, images, tool calls).
+    const anthropicMessages: Array<{ role: string; content: any[] }> = [];
+    for (const m of params.messages || []) {
+      const role = m.role === "assistant" ? "assistant" : "user";
+
+      const rawBlocks: StagehandBlock[] =
+        typeof m.content === "string"
+          ? [{ type: "text", text: m.content }]
+          : Array.isArray(m.content)
+            ? m.content
+            : m.content
+              ? [m.content]
+              : [];
+
+      const blocks = rawBlocks.map(toAnthropicBlock).filter(Boolean);
+      if (blocks.length === 0) blocks.push({ type: "text", text: "Proceed with observation" });
+
+      // Anthropic is happiest with alternating roles; merge runs of the same role
+      // rather than emitting consecutive same-role messages.
+      const previous = anthropicMessages[anthropicMessages.length - 1];
+      if (previous && previous.role === role) previous.content.push(...blocks);
+      else anthropicMessages.push({ role, content: blocks });
+    }
 
     // 2. Build payload with Tool Calling for strict structured JSON output
     const payload: any = {
       model: config.model,
-      max_tokens: 4096,
+      max_tokens: config.maxTokens,
       messages: anthropicMessages,
     };
 
     if (params.systemPrompt) {
       payload.system = params.systemPrompt;
+    }
+    if (typeof params.temperature === "number") {
+      payload.temperature = params.temperature;
+    }
+    if (Array.isArray(params.stopSequences) && params.stopSequences.length > 0) {
+      payload.stop_sequences = params.stopSequences;
     }
 
     if (params.responseFormat?.type === "json_schema" && params.responseFormat?.schema) {
@@ -112,6 +174,13 @@ export function createClaudeStagehandGenerator(configOverride?: Partial<ClaudeCo
         },
       ];
       payload.tool_choice = { type: "tool", name: toolName };
+    } else if (Array.isArray(params.tools) && params.tools.length > 0) {
+      // Text-mode variant: Stagehand supplies its own tool definitions.
+      payload.tools = params.tools.map((t: any) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema,
+      }));
     }
 
     // 3. Prepare headers (Bearer token & Databricks headers)
@@ -123,11 +192,21 @@ export function createClaudeStagehandGenerator(configOverride?: Partial<ClaudeCo
       ...config.customHeaders,
     };
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
+    // Without a timeout a hung gateway request stalls the whole agent run.
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(config.timeoutMs),
+      });
+    } catch (err: any) {
+      if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+        throw new Error(`Claude gateway request timed out after ${config.timeoutMs}ms`);
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -149,20 +228,35 @@ export function createClaudeStagehandGenerator(configOverride?: Partial<ClaudeCo
     // 4. Return structured response matching Stagehand's LLMGenerateResultSchema
     if (params.responseFormat?.type === "json_schema") {
       let structuredContent: any = toolUseBlock?.input;
+
       if (!structuredContent && textBlock?.text) {
-        try {
-          const match = textBlock.text.match(/\{[\s\S]*\}/);
-          structuredContent = match ? JSON.parse(match[0]) : {};
-        } catch {
-          structuredContent = { elements: [] };
+        // Model answered in prose despite tool_choice. Try to recover JSON from it.
+        const match = textBlock.text.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            structuredContent = JSON.parse(match[0]);
+          } catch {
+            // fall through to the error below
+          }
         }
+      }
+
+      // Deliberately throw rather than substituting an empty result. A silent
+      // `{ elements: [] }` reads downstream as "this page has no candidates",
+      // which sends the agent into a fallback loop with no indication that the
+      // model response was simply unparseable.
+      if (!structuredContent) {
+        throw new Error(
+          `Claude gateway returned no parseable structured output for "${params.responseFormat.name}". ` +
+            `stop_reason=${data.stop_reason}, text=${(textBlock?.text || "").slice(0, 200)}`
+        );
       }
 
       return {
         outputFormat: "json_schema",
         role: "assistant",
-        content: [{ type: "text", text: JSON.stringify(structuredContent || {}) }],
-        structuredContent: structuredContent || {},
+        content: [{ type: "text", text: JSON.stringify(structuredContent) }],
+        structuredContent,
         usage,
       };
     }

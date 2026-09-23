@@ -8,6 +8,8 @@ interface LiveViewportProps {
   currentUrl: string;
   isRunning: boolean;
   pageTitle?: string;
+  isTheater: boolean;
+  onToggleTheater: () => void;
 }
 
 export function LiveViewport({
@@ -15,44 +17,45 @@ export function LiveViewport({
   currentUrl,
   isRunning,
   pageTitle,
+  isTheater,
+  onToggleTheater,
 }: LiveViewportProps) {
   const [copied, setCopied] = useState(false);
-  const [isTheater, setIsTheater] = useState(false);
+  const hasUrl = Boolean(currentUrl) && currentUrl !== "about:blank";
 
   const copyUrl = async () => {
-    if (!currentUrl || currentUrl === "about:blank") return;
+    if (!hasUrl) return;
     try {
       await navigator.clipboard.writeText(currentUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    } catch {
+      // Clipboard access can be denied; nothing useful to surface here.
+    }
   };
 
   return (
     <div
-      className={`bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg overflow-hidden flex flex-col shadow-xs transition-all ${
-        isTheater ? "fixed inset-4 z-50 shadow-2xl bg-[var(--bg-canvas)]" : ""
+      className={`bg-[var(--bg-surface)] border border-[var(--border-subtle)] overflow-hidden flex flex-col min-h-0 ${
+        isTheater ? "fixed inset-3 z-40 rounded-lg shadow-2xl" : "h-full rounded"
       }`}
     >
-      {/* Browser Chrome Header */}
-      <div className="h-10 px-3 bg-[var(--bg-canvas)] border-b border-[var(--border-subtle)] flex items-center justify-between gap-3 select-none">
-        {/* Window Dots */}
-        <div className="flex items-center gap-1.5">
+      <div className="h-9 shrink-0 px-2.5 bg-[var(--bg-canvas)] border-b border-[var(--border-subtle)] flex items-center gap-3 select-none">
+        <div className="flex items-center gap-1.5 shrink-0">
           <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56] opacity-80" />
           <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] opacity-80" />
           <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f] opacity-80" />
         </div>
 
-        {/* Address Bar */}
-        <div className="flex-1 max-w-xl mx-auto h-7 px-2.5 bg-[var(--bg-hover)] border border-[var(--border-subtle)] rounded flex items-center justify-between gap-2">
+        <div className="flex-1 min-w-0 h-6 px-2 bg-[var(--bg-hover)] border border-[var(--border-subtle)] rounded flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 overflow-hidden">
             <Lock className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
-            <span className="text-xs font-mono text-[var(--text-secondary)] truncate">
+            <span className="text-[11px] font-mono text-[var(--text-secondary)] truncate">
               {currentUrl || "about:blank"}
             </span>
           </div>
 
-          {currentUrl && currentUrl !== "about:blank" && (
+          {hasUrl && (
             <button
               onClick={copyUrl}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors p-0.5 cursor-pointer shrink-0"
@@ -63,45 +66,40 @@ export function LiveViewport({
           )}
         </div>
 
-        {/* Viewport Actions */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setIsTheater(!isTheater)}
-            className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all cursor-pointer"
-            title={isTheater ? "Exit Theater Mode" : "Expand Theater Mode"}
-          >
-            {isTheater ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+        {isRunning && (
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600/90 text-white tracking-wider shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            LIVE
+          </span>
+        )}
+
+        <button
+          onClick={onToggleTheater}
+          className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all cursor-pointer shrink-0"
+          title={isTheater ? "Exit theater mode (Esc)" : "Expand to theater mode"}
+        >
+          {isTheater ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+        </button>
       </div>
 
-      {/* Screen Canvas Container */}
-      <div className="relative w-full aspect-16/10 bg-black flex items-center justify-center overflow-hidden flex-1">
+      <div className="relative flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden">
         {screenshotBase64 ? (
+          // eslint-disable-next-line @next/next/no-img-element -- streamed base64 frame, not a static asset
           <img
             src={`data:image/jpeg;base64,${screenshotBase64}`}
             alt="Live agent browser screencast"
-            className="w-full h-full object-contain select-none"
+            className="max-w-full max-h-full object-contain select-none"
           />
         ) : (
-          <div className="flex flex-col items-center justify-center text-center p-6 text-zinc-500">
+          <div className="flex flex-col items-center justify-center text-center p-6">
             <Monitor className="w-10 h-10 mb-2 opacity-40 text-zinc-400" />
             <div className="text-sm font-medium text-zinc-300">Live Agent Viewport</div>
             <div className="text-xs text-zinc-500 max-w-xs mt-1">
-              Browser actions, typing, and navigation stream here in real time as the agent runs.
+              Browser actions, typing, and navigation stream here as the agent runs.
             </div>
           </div>
         )}
 
-        {/* Live Pulse Badge */}
-        {isRunning && (
-          <div className="absolute top-2.5 right-2.5 bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1.5 tracking-wider backdrop-blur-xs select-none">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-            <span>LIVE</span>
-          </div>
-        )}
-
-        {/* Page Title Overlay in Theater Mode */}
         {pageTitle && (
           <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-xs text-zinc-300 text-[11px] px-2 py-0.5 rounded font-mono truncate max-w-sm pointer-events-none">
             {pageTitle}

@@ -87,7 +87,10 @@ import { BrowserAgent } from "./src/browserAgent.js";
 
 const agent = new BrowserAgent({
   headless: false,              // Visible browser window
-  confidenceThreshold: 0.75,   // Threshold for Jev System 1 fast-path
+  confidenceThreshold: 0.55,   // Jev fast-path threshold (default 0.55)
+  completionThreshold: 0.82,   // Noul threshold for "goal is done" (default 0.82)
+  destructiveThreshold: 0.75,  // Noul threshold for the destructive-action gate
+  stagnationLimit: 3,          // Identical page fingerprints before giving up
   maxSteps: 10,
   verbose: true,
 });
@@ -108,10 +111,20 @@ console.log("Extracted:", result.extractedData);
 
 | Metric | Traditional LLM Browser Agent | Jev System One Harness |
 | :--- | :--- | :--- |
-| **Routine Decision Latency** | 3,000ms – 5,000ms | **70ms – 150ms** |
-| **Token Cost per Step** | ~$0.05 – $0.20 | **~$0.0005** |
-| **Completion Verification** | Separate multi-second LLM call | **Free in-parallel Noul** |
-| **Safety Interception** | Post-hoc parsing | **Pre-execution Noul gate** |
+| **Decision step (choose which element to act on)** | One LLM round-trip | **One Jev call — see `Jev reflex` in the telemetry bar** |
+| **Completion verification** | Separate LLM call | **Answered in the same parallel Jev request, no extra round-trip** |
+| **Safety interception** | Post-hoc parsing of the model's output | **Pre-execution Noul gate** |
+
+> **Read the numbers carefully.** Jev replaces the *decision* LLM call, not every
+> LLM call. This harness still pays a Stagehand `observe()` round-trip on **every
+> step** to enumerate candidate elements *before* Jev is consulted, so the
+> end-to-end time per step is dominated by `observe()`, not by the reflex.
+>
+> The UI and the CLI summary therefore report `Jev reflex`, `observe() LLM`, and
+> `Total/step` as three separate figures. Quote whichever one actually answers
+> your question, and measure it on your own pages and network — this table
+> deliberately no longer hardcodes latency figures, because the previous ones
+> compared a Jev call against a whole agent step.
 
 ---
 

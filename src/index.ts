@@ -61,12 +61,25 @@ async function main() {
     fallbackProvider: fallback,
   });
 
+  // Ctrl-C stops the run cleanly so the browser is closed rather than orphaned.
+  const onSignal = () => {
+    if (agent.isAborted) process.exit(130);
+    console.log(chalk.yellow("\nStopping run (press Ctrl-C again to force quit)..."));
+    agent.stop();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   try {
     const result = await agent.run(defaultGoal);
 
     if (result.extractedData) {
       console.log(chalk.bold.cyan("Extracted Data:"));
       console.log(JSON.stringify(result.extractedData, null, 2));
+    }
+
+    if (!result.success) {
+      console.error(chalk.yellow(`\nRun did not succeed (${result.outcome}): ${result.terminationReason}`));
     }
 
     process.exit(result.success ? 0 : 1);

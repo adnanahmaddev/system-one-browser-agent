@@ -1,105 +1,97 @@
 "use client";
 
 import React from "react";
-import { Zap, Cpu, Gauge, Activity } from "lucide-react";
-import type { StepTelemetry } from "@/types/agent";
+import { FALLBACK_LABELS, type FallbackProvider, type StepTelemetry } from "@/types/agent";
 
 interface TelemetryBarProps {
   steps: StepTelemetry[];
-  isRunning: boolean;
-  fallbackProvider: "gemini" | "claude";
+  fallbackProvider: FallbackProvider;
 }
 
-export function TelemetryBar({ steps, isRunning, fallbackProvider }: TelemetryBarProps) {
-  const totalSteps = steps.length;
-  const s1Count = steps.filter((s) => s.decisionPath === "SYSTEM_1_JEV").length;
-  const s2Count = steps.filter((s) => s.decisionPath === "SYSTEM_2_GEMINI_FALLBACK").length;
-
-  const s1Percentage = totalSteps > 0 ? Math.round((s1Count / totalSteps) * 100) : 0;
-  const avgLatency =
-    totalSteps > 0
-      ? Math.round(steps.reduce((acc, s) => acc + s.latencyMs, 0) / totalSteps)
-      : 0;
-
+function Metric({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: string;
+}) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {/* Fast-Path Ratio */}
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-3 flex flex-col justify-between shadow-xs">
-        <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] font-medium">
-          <span className="flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5 text-[#0f7b6c] dark:text-[#4dab9a]" />
-            <span>Fast-Path Ratio</span>
-          </span>
-          <span className="text-[10px] text-[var(--text-tertiary)] font-mono">&lt;150ms</span>
-        </div>
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-xl font-bold font-mono text-[var(--tag-green-text)]">
-            {totalSteps > 0 ? `${s1Percentage}%` : "—"}
-          </span>
-          <span className="text-[11px] text-[var(--text-tertiary)]">
-            ({s1Count} S1 / {s2Count} S2)
-          </span>
-        </div>
-      </div>
-
-      {/* Avg Decision Latency */}
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-3 flex flex-col justify-between shadow-xs">
-        <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] font-medium">
-          <span className="flex items-center gap-1">
-            <Gauge className="w-3.5 h-3.5 text-[#6940a5] dark:text-[#9a6dd7]" />
-            <span>Avg Step Latency</span>
-          </span>
-          <span className="text-[10px] text-[var(--text-tertiary)] font-mono">per step</span>
-        </div>
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-xl font-bold font-mono text-[var(--text-primary)]">
-            {totalSteps > 0 ? `${avgLatency}ms` : "—"}
-          </span>
-          {isRunning && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-[var(--tag-amber-text)] font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--tag-amber-text)] animate-ping" />
-              active
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Executed Steps */}
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-3 flex flex-col justify-between shadow-xs">
-        <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] font-medium">
-          <span className="flex items-center gap-1">
-            <Activity className="w-3.5 h-3.5 text-[#0b6e99] dark:text-[#529cca]" />
-            <span>Executed Steps</span>
-          </span>
-          <span className="text-[10px] text-[var(--text-tertiary)] font-mono">progress</span>
-        </div>
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-xl font-bold font-mono text-[var(--text-primary)]">
-            {totalSteps}
-          </span>
-          <span className="text-[11px] text-[var(--text-tertiary)]">actions taken</span>
-        </div>
-      </div>
-
-      {/* Dual Engines Status */}
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-3 flex flex-col justify-between shadow-xs">
-        <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] font-medium">
-          <span className="flex items-center gap-1">
-            <Cpu className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-            <span>Active Architecture</span>
-          </span>
-        </div>
-        <div className="mt-2 flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--tag-green-text)]">
-            <span className="w-1.5 h-1.5 rounded-full bg-current" />
-            <span>S1: Jev (TypeSafe AI)</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]">
-            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-            <span>S2: {fallbackProvider === "claude" ? "Claude Sonnet (Databricks)" : "Gemini Flash"}</span>
-          </div>
-        </div>
-      </div>
+    <div className="flex items-baseline gap-1.5 min-w-0" title={hint}>
+      <span className="text-[11px] text-[var(--text-secondary)] shrink-0">{label}</span>
+      <span
+        className="text-xs font-mono font-semibold truncate"
+        style={{ color: accent ?? "var(--text-primary)" }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
+
+/**
+ * Compact run metrics. Deliberately one dense row rather than a grid of cards:
+ * these are four numbers, and the vertical space is worth more to the viewport.
+ */
+export const TelemetryBar = React.memo(function TelemetryBar({
+  steps,
+  fallbackProvider,
+}: TelemetryBarProps) {
+  const s1Count = steps.filter((s) => s.decisionPath === "SYSTEM_1_JEV").length;
+  const s2Count = steps.filter((s) => s.decisionPath === "SYSTEM_2_GEMINI_FALLBACK").length;
+
+  // Ratio over action steps only — terminal pseudo-steps took no action.
+  const actionSteps = s1Count + s2Count;
+  const s1Percentage = actionSteps > 0 ? Math.round((s1Count / actionSteps) * 100) : 0;
+
+  const avg = (pick: (s: StepTelemetry) => number) =>
+    steps.length > 0 ? Math.round(steps.reduce((acc, s) => acc + pick(s), 0) / steps.length) : 0;
+
+  const avgJev = avg((s) => s.jevLatencyMs);
+  const avgObserve = avg((s) => s.observeLatencyMs);
+  const avgStep = avg((s) => s.latencyMs);
+  const dash = steps.length === 0;
+
+  return (
+    <div className="shrink-0 h-9 px-3 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center gap-x-5 gap-y-1 overflow-x-auto text-xs">
+      <Metric
+        label="Steps"
+        value={dash ? "—" : `${steps.length}`}
+        hint="Steps recorded this run, including the terminal step"
+      />
+      <Metric
+        label="Fast-path"
+        value={dash ? "—" : `${s1Percentage}% (${s1Count}/${actionSteps})`}
+        accent="var(--tag-green-text)"
+        hint="Share of actions resolved by Jev without escalating to System 2"
+      />
+      <Metric
+        label="Jev reflex"
+        value={dash ? "—" : `${avgJev}ms`}
+        accent="var(--tag-purple-text)"
+        hint="Average time inside the Jev System One call — the actual reflex latency"
+      />
+      <Metric
+        label="observe() LLM"
+        value={dash ? "—" : `${avgObserve}ms`}
+        accent="var(--tag-amber-text)"
+        hint="Average Stagehand observe() round-trip. Paid on every step, before Jev is consulted."
+      />
+      <Metric
+        label="Total/step"
+        value={dash ? "—" : `${avgStep}ms`}
+        hint="Average wall-clock per step: observe() + Jev + the action itself"
+      />
+
+      <div className="ml-auto flex items-center gap-1.5 shrink-0 text-[11px] text-[var(--text-secondary)]">
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--tag-green-text)]" />
+        <span className="hidden sm:inline">Jev</span>
+        <span className="text-[var(--text-tertiary)]">+</span>
+        <span>{FALLBACK_LABELS[fallbackProvider]}</span>
+      </div>
+    </div>
+  );
+});

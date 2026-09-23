@@ -10,6 +10,7 @@
     "ui": "concurrently -k -p \"[{name}]\" -n \"AGENT,NEXT\" -c \"magenta,cyan\" \"tsx src/server.ts\" \"npm --prefix ui run dev\"",
     "quickstart": "tsx examples/quickstart.ts",
     "benchmark": "tsx examples/benchmark-comparison.ts",
+    "test": "tsx --test tests/*.test.ts",
     "build": "tsc"
   },
   "dependencies": {

@@ -97,14 +97,28 @@ async function runBenchmark() {
   console.table(results);
 
   const avgLatency = Math.round(results.reduce((acc, r) => acc + r.jevLatencyMs, 0) / results.length);
-  const estimatedLlmLatency = 3500; // Typical frontier LLM token-generation round-trip for large DOM
+  // NOT a measurement. Nothing in this script calls a frontier LLM, so the
+  // baseline is an assumed constant and every figure derived from it is an
+  // estimate. Labelled as such in the output rather than removed, because the
+  // order of magnitude is still useful context.
+  const ASSUMED_LLM_DECISION_LATENCY_MS = 3500;
 
-  console.log(chalk.cyan("━".repeat(65)));
-  console.log(`Average Jev System One Latency:   ${chalk.green.bold(avgLatency + "ms")}`);
-  console.log(`Standard Frontier LLM Latency:     ${chalk.red.bold(estimatedLlmLatency + "ms")}`);
-  console.log(`Speedup Factor:                    ${chalk.yellow.bold(Math.round(estimatedLlmLatency / avgLatency) + "x FASTER")}`);
-  console.log(`Cost Reduction:                    ${chalk.green.bold("~95% - 98% less token expenditure")}`);
-  console.log(chalk.cyan("━".repeat(65)) + "\n");
+  console.log(chalk.cyan("━".repeat(72)));
+  console.log(`Measured avg Jev decision latency:  ${chalk.green.bold(avgLatency + "ms")}`);
+  console.log(
+    `Assumed LLM decision latency:       ${chalk.red.bold(ASSUMED_LLM_DECISION_LATENCY_MS + "ms")} ${chalk.dim("(hardcoded, not measured)")}`
+  );
+  console.log(
+    `Implied speedup:                    ${chalk.yellow.bold(Math.round(ASSUMED_LLM_DECISION_LATENCY_MS / avgLatency) + "x")} ${chalk.dim("(estimate — depends entirely on the assumption above)")}`
+  );
+  console.log(chalk.cyan("━".repeat(72)));
+  console.log(
+    chalk.dim(
+      "Scope: this compares the DECISION call only. A full agent step also pays a\n" +
+        "Stagehand observe() round-trip, which this harness does not avoid. Token cost\n" +
+        "is not instrumented here, so no cost claim is printed."
+    ) + "\n"
+  );
 }
 
 runBenchmark().catch(console.error);
