@@ -37,14 +37,14 @@ async function main() {
   // Default demonstration task if no CLI args are given
   const defaultGoal: AgentGoal = {
     instruction: goal || "Find the latest release version and star count of Playwright on GitHub",
-    startUrl: url || "https://github.com/microsoft/playwright",
-    extractInstruction: extract || "Extract the latest release tag name and total repository star count",
+    startUrl: url || (goal ? undefined : "https://github.com/microsoft/playwright"),
+    extractInstruction: extract || (goal ? undefined : "Extract the latest release tag name and total repository star count"),
     maxSteps,
   };
 
   const agent = new BrowserAgent({
     headless,
-    confidenceThreshold: 0.75,
+    confidenceThreshold: 0.55,
     maxSteps,
     verbose: true,
   });

@@ -51,7 +51,7 @@ export interface CandidateAction {
 export interface BrowserAgentOptions {
   /** Run browser in visible window (default: true) */
   headless?: boolean;
-  /** Jev confidence threshold for fast-path execution (default: 0.75) */
+  /** Jev confidence threshold for fast-path execution (default: 0.55) */
   confidenceThreshold?: number;
   /** Max steps for agent execution (default: 15) */
   maxSteps?: number;

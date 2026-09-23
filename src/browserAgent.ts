@@ -16,7 +16,7 @@ export class BrowserAgent {
   constructor(options: BrowserAgentOptions = {}) {
     this.options = {
       headless: options.headless ?? false,
-      confidenceThreshold: options.confidenceThreshold ?? 0.75,
+      confidenceThreshold: options.confidenceThreshold ?? 0.55,
       maxSteps: options.maxSteps ?? 15,
       verbose: options.verbose ?? true,
     };
@@ -48,12 +48,26 @@ export class BrowserAgent {
       await this.runner.goto(startUrl);
 
       let lastActionDescription: string | undefined = `Navigated to ${startUrl}`;
+      let lastUrl: string | undefined = undefined;
+      let stagnantCount = 0;
 
       for (let step = 1; step <= (goal.maxSteps || this.options.maxSteps); step++) {
         const stepStart = performance.now();
         const pageContext = await this.runner.getPageContext();
 
         this.logStepHeader(step, pageContext.title, pageContext.url);
+
+        // Stagnation Detection: If we remain on the same URL with 0 actionable candidates
+        if (lastUrl && pageContext.url === lastUrl) {
+          stagnantCount++;
+          if (stagnantCount >= 2) {
+            this.logWarning(`Page state stagnant on ${pageContext.url} with no progression. Completing exploration.`);
+            break;
+          }
+        } else {
+          stagnantCount = 0;
+          lastUrl = pageContext.url;
+        }
 
         // 1. Observe candidates on current page
         this.logInfo("Observing interactive candidates...");
@@ -71,8 +85,8 @@ export class BrowserAgent {
 
         this.logJevResult(jevEval, jevLatency);
 
-        // Check 3: Is the goal already complete?
-        if (jevEval.isComplete && step > 1) {
+        // Check 3: Is the goal already complete on this screen?
+        if (jevEval.isComplete) {
           this.logSuccess(`Goal achieved! Completion probability: ${Math.round(jevEval.completeProbability * 100)}%`);
           history.push({
             stepNumber: step,
@@ -167,10 +181,12 @@ export class BrowserAgent {
         await new Promise((r) => setTimeout(r, 1000));
       }
 
-      // Optional final extraction
-      if (goal.extractInstruction) {
-        this.logInfo(`Performing final extraction: "${goal.extractInstruction}"`);
-        extractedData = await this.runner.extract(goal.extractInstruction);
+      // Extraction handling: explicit extractInstruction OR informational goal
+      const shouldExtract = goal.extractInstruction || /^(find|what|get|extract|read|check|show)\b/i.test(goal.instruction);
+      if (shouldExtract) {
+        const extractQuery = goal.extractInstruction || `Extract the requested answer for: "${goal.instruction}"`;
+        this.logInfo(`Extracting answer: "${extractQuery}"`);
+        extractedData = await this.runner.extract(extractQuery);
         this.logSuccess("Extraction complete!");
       }
 
