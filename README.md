@@ -54,6 +54,35 @@ This harness implements a **Dual-Process ("System 1 + System 2") Architecture**:
   GEMINI_API_KEY="your_gemini_api_key_here"
   ```
 
+### Viewport & screencast quality (optional)
+
+These apply to both the CLI and `npm run ui`, and the effective values are printed
+in the server's startup banner:
+
+```env
+AGENT_VIEWPORT=2560x1440       # browser viewport in CSS pixels (default 1920x1080)
+AGENT_DEVICE_SCALE=2           # device pixel ratio, 1-3 (default 1; 2 = retina)
+AGENT_FPS=5                    # target screencast frames/sec (default 2.5)
+AGENT_SCREENSHOT_QUALITY=90    # JPEG quality 1-100 (default 80)
+```
+
+The viewport is applied with a per-page CDP device-metrics override *after*
+Stagehand starts, not via the launch option — Stagehand converts that option into
+a Chrome `--window-size` flag, which sizes the window rather than the rendered
+page, and converts `deviceScaleFactor` into `--force-device-scale-factor`, which
+zooms the page rather than raising capture density. Changing any of these
+requires restarting the agent process, since they are applied at browser init.
+
+The viewport is not merely cosmetic — it is what the agent can see. Small
+viewports make sites collapse panels and hide controls, so `observe()` returns
+genuinely fewer candidates.
+
+Frames are CDP screenshots encoded on the page's own thread, so fps and device
+scale are not free: raising both at once measurably slows the agent's real work.
+The screencast subtracts each frame's own capture time from the interval and never
+runs two captures concurrently, so a slow page degrades the frame rate instead of
+queueing up behind itself.
+
 ### 2. Run the Benchmark
 Measure Jev's parallel decision latency across real-world web scenarios:
 ```bash

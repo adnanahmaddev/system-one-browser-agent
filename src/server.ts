@@ -2,6 +2,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import dotenv from "dotenv";
 import { BrowserAgent } from "./browserAgent.js";
+import { describeDisplayConfig, readDisplayConfig } from "./displayConfig.js";
 import type { FallbackProvider } from "./types.js";
 
 dotenv.config();
@@ -40,6 +41,9 @@ function isOriginAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
   return ALLOWED_ORIGINS.has(origin);
 }
+
+/** Viewport / screencast settings; see displayConfig.ts for the env vars. */
+const DISPLAY = readDisplayConfig();
 
 /**
  * HTTP surface is the health endpoint only. This process is the agent bridge; the
@@ -177,6 +181,7 @@ wss.on("connection", (ws: WebSocket) => {
           maxSteps: payload.maxSteps ? parseInt(payload.maxSteps, 10) : 15,
           confidenceThreshold:
             typeof payload.confidenceThreshold === "number" ? payload.confidenceThreshold : 0.55,
+          ...DISPLAY,
           verbose: true,
           onStep: (telemetry) => {
             send({ type: "step", data: telemetry });
@@ -233,6 +238,7 @@ server.listen(PORT, HOST, () => {
   console.log(`\n⚡ System One agent service running at: http://${HOST}:${PORT}`);
   console.log(`   - WebSocket:       ws://${HOST}:${PORT}`);
   console.log(`   - Health:          http://${HOST}:${PORT}/api/health`);
+  console.log(`   - Screencast:      ${describeDisplayConfig(DISPLAY)}`);
   console.log(`   - UI:              run \`npm --prefix ui run dev\` (http://localhost:3000)`);
   console.log(`   - Allowed origins: ${[...ALLOWED_ORIGINS].join(", ")}\n`);
 });

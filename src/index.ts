@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { BrowserAgent } from "./browserAgent.js";
+import { readDisplayConfig } from "./displayConfig.js";
 import type { AgentGoal, FallbackProvider } from "./types.js";
 import chalk from "chalk";
 
@@ -54,6 +55,7 @@ async function main() {
   };
 
   const agent = new BrowserAgent({
+    ...readDisplayConfig(),
     headless,
     confidenceThreshold: 0.55,
     maxSteps,

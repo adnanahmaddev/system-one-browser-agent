@@ -101,6 +101,10 @@ export class BrowserAgent {
     maxSteps: number;
     verbose: boolean;
     fallbackProvider: FallbackProvider;
+    viewport: { width: number; height: number };
+    deviceScaleFactor: number;
+    screenshotQuality: number;
+    screencastIntervalMs: number;
   };
 
   /** Aborts this run in addition to any externally supplied signal. */
@@ -114,6 +118,10 @@ export class BrowserAgent {
       maxSteps: options.maxSteps ?? 15,
       verbose: options.verbose ?? true,
       fallbackProvider: options.fallbackProvider ?? "gemini",
+      viewport: options.viewport ?? { width: 1920, height: 1080 },
+      deviceScaleFactor: options.deviceScaleFactor ?? 1,
+      screenshotQuality: options.screenshotQuality ?? 80,
+      screencastIntervalMs: options.screencastIntervalMs ?? 400,
       signal: options.signal,
       onStep: options.onStep,
       onLog: options.onLog,
@@ -133,6 +141,9 @@ export class BrowserAgent {
     this.runner = new StagehandRunner({
       headless: this.options.headless,
       fallbackProvider: this.options.fallbackProvider,
+      viewport: this.options.viewport,
+      deviceScaleFactor: this.options.deviceScaleFactor,
+      screenshotQuality: this.options.screenshotQuality,
     });
   }
 
@@ -172,7 +183,7 @@ export class BrowserAgent {
    * on one session. Waiting for each capture to settle bounds it to one in
    * flight. Returns a stop function.
    */
-  private startScreencast(intervalMs = 400): () => void {
+  private startScreencast(intervalMs = this.options.screencastIntervalMs): () => void {
     if (!this.options.onScreenshot) return () => {};
 
     let stopped = false;
@@ -180,9 +191,14 @@ export class BrowserAgent {
 
     const tick = async () => {
       if (stopped || this.isAborted) return;
+      const frameStart = performance.now();
       await this.emitScreenshot();
       if (stopped || this.isAborted) return;
-      timer = setTimeout(tick, intervalMs);
+      // Subtract the time the frame itself took, so the requested rate is held
+      // when encoding is fast without ever stacking two captures. A minimum gap
+      // keeps a slow page from starving the agent's own Stagehand calls.
+      const elapsed = performance.now() - frameStart;
+      timer = setTimeout(tick, Math.max(50, intervalMs - elapsed));
     };
 
     timer = setTimeout(tick, intervalMs);

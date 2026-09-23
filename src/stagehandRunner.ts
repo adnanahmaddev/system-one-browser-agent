@@ -11,6 +11,16 @@ export interface StagehandRunnerOptions {
   modelName?: string;
   geminiApiKey?: string;
   fallbackProvider?: FallbackProvider;
+  /** Browser viewport in CSS pixels. Defaults to 1920x1080. */
+  viewport?: { width: number; height: number };
+  /**
+   * Device pixel ratio. 2 renders retina-sharp frames at roughly 4x the pixel
+   * count — visibly crisper, but every screencast frame gets proportionally
+   * larger, and screenshot encoding runs on the page's own thread.
+   */
+  deviceScaleFactor?: number;
+  /** JPEG quality for screencast frames, 1-100. Defaults to 80. */
+  screenshotQuality?: number;
 }
 
 export class StagehandRunner {
@@ -23,6 +33,9 @@ export class StagehandRunner {
       modelName: options.modelName ?? "google/gemini-2.5-flash",
       geminiApiKey: options.geminiApiKey || process.env.GEMINI_API_KEY,
       fallbackProvider: options.fallbackProvider ?? "gemini",
+      viewport: options.viewport ?? { width: 1920, height: 1080 },
+      deviceScaleFactor: options.deviceScaleFactor ?? 1,
+      screenshotQuality: options.screenshotQuality ?? 80,
     };
   }
 
@@ -35,6 +48,11 @@ export class StagehandRunner {
     const browser = await localBrowser.launch({
       headless: this.options.headless,
       acceptDownloads: false,
+      // A larger viewport is not only cosmetic: it is what the agent can see.
+      // At 1280x720 Google Maps collapses panels and hides controls, so the
+      // candidate list observe() produces is genuinely smaller.
+      viewport: this.options.viewport,
+      deviceScaleFactor: this.options.deviceScaleFactor,
     });
 
     let modelConfig: any;
@@ -55,6 +73,18 @@ export class StagehandRunner {
       logging: {
         level: "warn",
       },
+    });
+
+    // The launch-time `viewport` option is NOT the rendered page viewport:
+    // Stagehand turns it into a Chrome `--window-size` flag, and turns
+    // `deviceScaleFactor` into `--force-device-scale-factor` (which zooms the
+    // page rather than raising screenshot pixel density). Only this per-page
+    // call actually drives CDP's device-metrics override, so the frames we
+    // capture are the size and pixel ratio we asked for.
+    const viewport = this.options.viewport!;
+    const page = await this.getPage();
+    await page.setViewportSize(viewport.width, viewport.height, {
+      deviceScaleFactor: this.options.deviceScaleFactor,
     });
   }
 
@@ -117,7 +147,10 @@ export class StagehandRunner {
   async captureScreenshotBase64(): Promise<string | null> {
     try {
       const page = await this.getPage();
-      const buffer = await page.screenshot({ type: "jpeg", quality: 60 });
+      const buffer = await page.screenshot({
+        type: "jpeg",
+        quality: this.options.screenshotQuality,
+      });
       return buffer ? Buffer.from(buffer).toString("base64") : null;
     } catch {
       return null;

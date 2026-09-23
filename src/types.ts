@@ -113,6 +113,21 @@ export interface BrowserAgentOptions {
   verbose?: boolean;
   /** System 2 fallback reasoning model provider (default: "gemini") */
   fallbackProvider?: FallbackProvider;
+  /** Browser viewport in CSS pixels (default: 1920x1080) */
+  viewport?: { width: number; height: number };
+  /** Device pixel ratio; 2 is retina-sharp at ~4x the frame bytes (default: 1) */
+  deviceScaleFactor?: number;
+  /** JPEG quality of screencast frames, 1-100 (default: 80) */
+  screenshotQuality?: number;
+  /**
+   * Target screencast interval in ms (default: 400, i.e. 2.5fps).
+   *
+   * This is a *target*, not a guarantee: each frame is a CDP screenshot that runs
+   * on the page's own thread, so the achievable rate is bounded by encode time.
+   * The next frame is always scheduled after the previous one completes, never
+   * concurrently with it.
+   */
+  screencastIntervalMs?: number;
   /**
    * Cooperative cancellation. When aborted the loop exits at its next checkpoint
    * and the browser is closed. An LLM call already in flight is allowed to settle.
