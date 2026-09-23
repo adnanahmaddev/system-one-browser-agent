@@ -1,0 +1,47 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment & Sensitive Keys
+.env
+.env.local
+.env.*.local
+*.pem
+
+# TypeScript Build Output
+dist/
+*.tsbuildinfo
+
+# Browser Automation & Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+downloads/
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs & Editors
+.idea/
+*.sublime-project
+*.sublime-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Local Agent Knowledge & Context (never commit to remote)
+PROJECT_KNOWLEDGE.md
+AGENTS.md
+
