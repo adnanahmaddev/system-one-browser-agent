@@ -69,9 +69,27 @@ export class BrowserAgent {
           lastUrl = pageContext.url;
         }
 
+        // Fix 2: Check for active autocomplete dropdown
+        const dropdownInfo = await this.runner.getActiveDropdownInfo();
+        if (dropdownInfo.hasDropdown && dropdownInfo.previewText) {
+          this.logInfo(`Active dropdown detected: "${chalk.cyan(dropdownInfo.previewText)}"`);
+        }
+
         // 1. Observe candidates on current page
         this.logInfo("Observing interactive candidates...");
         const candidates = await this.runner.observeCandidates(goal.instruction);
+
+        // Fix 2: If an autocomplete dropdown is visible, inject it as candidate #0 for Jev reflex choice
+        if (dropdownInfo.hasDropdown && dropdownInfo.selector) {
+          candidates.unshift({
+            id: "candidate_autocomplete_commit",
+            description: `Select "${dropdownInfo.previewText || "top suggestion"}" from active autocomplete dropdown`,
+            selector: dropdownInfo.selector,
+            method: "click",
+            arguments: [],
+          });
+        }
+
         this.logInfo(`Found ${chalk.bold(candidates.length)} candidate elements`);
 
         // 2. Query Jev System One in parallel

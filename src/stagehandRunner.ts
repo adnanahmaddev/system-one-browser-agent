@@ -110,10 +110,110 @@ export class StagehandRunner {
   }
 
   /**
+   * Fix 1: Detects if an active autocomplete/suggestion dropdown or listbox is visible in the DOM.
+   */
+  async getActiveDropdownInfo(): Promise<{ hasDropdown: boolean; selector?: string; previewText?: string }> {
+    try {
+      const page = await this.getPage();
+      return await page.evaluate(() => {
+        const selectors = [
+          // Google Maps specific suggestion items
+          ".sbdd_a .sbsb_c",
+          ".sbdd_a li",
+          "div.gstl_50.sbdd_a [role='option']",
+          // Standard ARIA listboxes and comboboxes
+          "[role='listbox'] [role='option']:not([aria-disabled='true'])",
+          "[role='listbox'] > li",
+          "[role='listbox'] > div",
+          // Google Places / general autocomplete dropdowns
+          ".pac-container .pac-item",
+          ".suggestions .suggestion",
+          ".suggestions-dropdown > *",
+          "ul.suggestions > li",
+          ".autocomplete-suggestions > *"
+        ];
+
+        for (const sel of selectors) {
+          const items = Array.from(document.querySelectorAll(sel));
+          for (let i = 0; i < items.length; i++) {
+            const el = items[i] as HTMLElement;
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            if (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none" &&
+              style.opacity !== "0"
+            ) {
+              const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+              if (text.length > 0) {
+                return {
+                  hasDropdown: true,
+                  selector: sel,
+                  previewText: text.slice(0, 60),
+                };
+              }
+            }
+          }
+        }
+        return { hasDropdown: false };
+      });
+    } catch {
+      return { hasDropdown: false };
+    }
+  }
+
+  /**
+   * Fix 1: Commits the top autocomplete suggestion if visible, or presses Enter on the focused input.
+   */
+  async commitTopSuggestionOrEnter(): Promise<boolean> {
+    try {
+      const page = await this.getPage();
+      const info = await this.getActiveDropdownInfo();
+
+      if (info.hasDropdown && info.selector) {
+        try {
+          const locator = page.locator(info.selector).first();
+          await locator.click();
+          await page.waitForTimeout(800);
+          return true;
+        } catch {
+          // Fall through to Enter key
+        }
+      }
+
+      // Check if an active input has focus
+      const hasFocusedInput = await page.evaluate(() => {
+        const active = document.activeElement;
+        return active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.getAttribute("contenteditable") === "true");
+      });
+
+      if (hasFocusedInput) {
+        await page.keyPress("Enter");
+        await page.waitForTimeout(800);
+        return true;
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Fast Path: Executes an already-observed candidate action directly without re-prompting an LLM.
    */
   async executeCandidateAction(action: CandidateAction): Promise<void> {
     if (!this.stagehand) throw new Error("Stagehand not initialized");
+
+    if (action.id === "candidate_autocomplete_commit" && action.selector) {
+      const page = await this.getPage();
+      const locator = page.locator(action.selector).first();
+      await locator.click();
+      await page.waitForTimeout(800);
+      return;
+    }
 
     await this.stagehand.act({
       selector: action.selector,
@@ -121,14 +221,31 @@ export class StagehandRunner {
       arguments: action.arguments,
       description: action.description,
     } as any);
+
+    const page = await this.getPage();
+    await page.waitForTimeout(500);
   }
 
   /**
    * System 2 Fallback: Invokes Gemini Flash through Stagehand to reason over natural language instruction.
+   * Enriched with autocomplete commit guidance and automatic post-action dropdown commit.
    */
   async fallbackAct(instruction: string): Promise<void> {
     if (!this.stagehand) throw new Error("Stagehand not initialized");
-    await this.stagehand.act(instruction);
+
+    const enriched = instruction.toLowerCase().includes("press enter") || instruction.toLowerCase().includes("dropdown")
+      ? instruction
+      : `${instruction} (Important: if typing into a search or location input and a suggestion dropdown appears, click the first matching suggestion or press Enter to lock the selection)`;
+
+    await this.stagehand.act(enriched);
+
+    const page = await this.getPage();
+    await page.waitForTimeout(800);
+
+    const dropdownInfo = await this.getActiveDropdownInfo();
+    if (dropdownInfo.hasDropdown) {
+      await this.commitTopSuggestionOrEnter();
+    }
   }
 
   /**
