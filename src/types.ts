@@ -48,6 +48,8 @@ export interface CandidateAction {
   arguments?: any[];
 }
 
+export type FallbackProvider = "gemini" | "claude";
+
 export interface BrowserAgentOptions {
   /** Run browser in visible window (default: true) */
   headless?: boolean;
@@ -57,6 +59,8 @@ export interface BrowserAgentOptions {
   maxSteps?: number;
   /** Enable verbose console logs (default: true) */
   verbose?: boolean;
+  /** System 2 fallback reasoning model provider (default: "gemini") */
+  fallbackProvider?: FallbackProvider;
 }
 
 export interface AgentRunResult {

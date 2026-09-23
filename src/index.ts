@@ -1,15 +1,23 @@
 import "dotenv/config";
 import { BrowserAgent } from "./browserAgent.js";
-import type { AgentGoal } from "./types.js";
+import type { AgentGoal, FallbackProvider } from "./types.js";
 import chalk from "chalk";
 
-function parseArgs(): { goal?: string; url?: string; headless: boolean; maxSteps: number; extract?: string } {
+function parseArgs(): {
+  goal?: string;
+  url?: string;
+  headless: boolean;
+  maxSteps: number;
+  extract?: string;
+  fallback: FallbackProvider;
+} {
   const args = process.argv.slice(2);
   let goal: string | undefined = undefined;
   let url: string | undefined = undefined;
   let extract: string | undefined = undefined;
   let headless = false;
   let maxSteps = 10;
+  let fallback: FallbackProvider = "gemini";
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -21,6 +29,9 @@ function parseArgs(): { goal?: string; url?: string; headless: boolean; maxSteps
       extract = args[++i];
     } else if (arg === "--headless") {
       headless = true;
+    } else if (arg === "--fallback" || arg === "-f") {
+      const val = (args[++i] || "").toLowerCase();
+      fallback = val.includes("claude") || val.includes("anthropic") ? "claude" : "gemini";
     } else if (arg === "--steps" || arg === "-s") {
       maxSteps = parseInt(args[++i], 10) || 10;
     } else if (!goal && !arg.startsWith("-")) {
@@ -28,11 +39,11 @@ function parseArgs(): { goal?: string; url?: string; headless: boolean; maxSteps
     }
   }
 
-  return { goal, url, headless, maxSteps, extract };
+  return { goal, url, headless, maxSteps, extract, fallback };
 }
 
 async function main() {
-  const { goal, url, headless, maxSteps, extract } = parseArgs();
+  const { goal, url, headless, maxSteps, extract, fallback } = parseArgs();
 
   // Default demonstration task if no CLI args are given
   const defaultGoal: AgentGoal = {
@@ -47,6 +58,7 @@ async function main() {
     confidenceThreshold: 0.55,
     maxSteps,
     verbose: true,
+    fallbackProvider: fallback,
   });
 
   try {

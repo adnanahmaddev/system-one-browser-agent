@@ -1,11 +1,13 @@
 import { Stagehand, localBrowser } from "@browserbasehq/stagehand";
-import type { CandidateAction } from "./types.js";
+import type { CandidateAction, FallbackProvider } from "./types.js";
+import { createClaudeStagehandGenerator } from "./claudeClient.js";
 import { z } from "zod";
 
 export interface StagehandRunnerOptions {
   headless?: boolean;
   modelName?: string;
   geminiApiKey?: string;
+  fallbackProvider?: FallbackProvider;
 }
 
 export class StagehandRunner {
@@ -17,6 +19,7 @@ export class StagehandRunner {
       headless: options.headless ?? false,
       modelName: options.modelName ?? "google/gemini-2.5-flash",
       geminiApiKey: options.geminiApiKey || process.env.GEMINI_API_KEY,
+      fallbackProvider: options.fallbackProvider ?? "gemini",
     };
   }
 
@@ -31,12 +34,21 @@ export class StagehandRunner {
       acceptDownloads: false,
     });
 
-    this.stagehand = await Stagehand.create({
-      browser,
-      model: {
+    let modelConfig: any;
+    if (this.options.fallbackProvider === "claude") {
+      modelConfig = {
+        generate: createClaudeStagehandGenerator(),
+      };
+    } else {
+      modelConfig = {
         modelName: (this.options.modelName || "google/gemini-2.5-flash") as any,
         apiKey: this.options.geminiApiKey,
-      },
+      };
+    }
+
+    this.stagehand = await Stagehand.create({
+      browser,
+      model: modelConfig,
       logging: {
         level: "warn",
       },

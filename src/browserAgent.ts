@@ -19,11 +19,13 @@ export class BrowserAgent {
       confidenceThreshold: options.confidenceThreshold ?? 0.55,
       maxSteps: options.maxSteps ?? 15,
       verbose: options.verbose ?? true,
+      fallbackProvider: options.fallbackProvider ?? "gemini",
     };
 
     this.jev = new JevDecisionEngine();
     this.runner = new StagehandRunner({
       headless: this.options.headless,
+      fallbackProvider: this.options.fallbackProvider,
     });
   }
 
@@ -238,7 +240,11 @@ export class BrowserAgent {
     if (goal.startUrl) console.log(chalk.bold("Start URL:   ") + chalk.gray(goal.startUrl));
     console.log(chalk.bold("Browser:     ") + (this.options.headless ? chalk.yellow("Headless") : chalk.green("Headed (Live Window)")));
     console.log(chalk.bold("Jev Model:   ") + chalk.magenta("System One (TypeSafe AI)"));
-    console.log(chalk.bold("Fallback:    ") + chalk.blue("Google Gemini Flash (Medium Thinking)"));
+    const fallbackLabel =
+      this.options.fallbackProvider === "claude"
+        ? chalk.yellow("Anthropic Claude Sonnet (Databricks AI Gateway)")
+        : chalk.blue("Google Gemini Flash (Medium Thinking)");
+    console.log(chalk.bold("Fallback:    ") + fallbackLabel);
     console.log(chalk.cyan("━".repeat(60)) + "\n");
   }
 
