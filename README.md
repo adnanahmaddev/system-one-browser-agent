@@ -164,13 +164,42 @@ System One/
 ├── src/
 │   ├── browserAgent.ts     # Main dual-process orchestrator loop
 │   ├── jevClient.ts        # TypeSafe AI Jev System One decision engine
-│   ├── stagehandRunner.ts  # Stagehand browser controller & Gemini fallback
+│   ├── stagehandRunner.ts  # Stagehand browser controller, viewport & model setup
+│   ├── claudeClient.ts     # Claude Sonnet fallback generator for Stagehand
+│   ├── displayConfig.ts    # Viewport / screencast environment configuration
+│   ├── server.ts           # WebSocket agent bridge for the UI (port 3001)
 │   ├── types.ts            # TypeScript interfaces & telemetry types
 │   └── index.ts            # CLI runner & argument parser
+├── tests/
+│   └── agent-guards.test.ts # Guard & config tests (npm test)
+├── ui/                     # Next.js 16 operator dashboard (port 3000)
 ├── examples/
 │   ├── quickstart.ts       # Self-contained quickstart demo
 │   └── benchmark-comparison.ts # Real-time latency & accuracy benchmark
 ├── .env                    # API keys configuration
 ├── package.json
 └── tsconfig.json
+```
+
+---
+
+## 🖥️ Web UI
+
+```bash
+npm run ui     # Next.js dashboard on :3000 + agent bridge on :3001
+npm run server # bridge only
+```
+
+The bridge binds to `127.0.0.1` and checks the `Origin` header on every WebSocket
+handshake — handshakes are not covered by CORS, so without that check any open web
+page could drive the agent's browser. Extend the allowlist with
+`AGENT_ALLOWED_ORIGINS`.
+
+---
+
+## ✅ Tests
+
+```bash
+npm test       # 7 tests (node:test via tsx)
+npm run build  # typecheck
 ```

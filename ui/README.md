@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# System One — Operator UI
 
-## Getting Started
+Next.js 16 (App Router) + React 19 dashboard for driving and watching the browser
+agent. It is a client of the agent bridge in `../src/server.ts`; on its own it
+renders, but has nothing to talk to.
 
-First, run the development server:
+## Running
+
+From the **repository root**, start both processes together:
+
+```bash
+npm run ui     # this UI on :3000 + agent bridge on :3001
+```
+
+Or from this directory, the UI alone (expects a bridge already running on :3001):
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open <http://localhost:3000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Layout
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Path | Contents |
+|---|---|
+| `app/page.tsx` | App shell: lifted run state, WebSocket client, keybindings |
+| `app/layout.tsx` | Fonts (Inter + JetBrains Mono via `next/font/google`) and the theme bootstrap script |
+| `app/globals.css` | Tailwind v4 entry and the light/dark design tokens |
+| `components/` | `LiveViewport`, `StepTimeline`, `StepInspector`, `ResultBanner`, `ConsoleDrawer`, `TelemetryBar`, `DecisionBadge`, `ComposerCard`, `TopNav` |
+| `lib/theme.ts` | Theme persistence and the external store `TopNav` subscribes to |
+| `types/` | Shared run/telemetry types mirrored from `../src/types.ts` |
 
-## Learn More
+## Notes
 
-To learn more about Next.js, take a look at the following resources:
+- Keyboard: **Cmd/Ctrl+Enter** starts a run, **Esc** closes the step inspector, then
+  exits theater mode, then stops a running agent.
+- The live viewport renders JPEG frames streamed over the WebSocket. Frame size and
+  rate are set by `AGENT_VIEWPORT`, `AGENT_DEVICE_SCALE`, `AGENT_FPS`, and
+  `AGENT_SCREENSHOT_QUALITY` in the **agent** process, not here — see the root README.
+- The console keeps the most recent 1000 log lines.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run build   # production build
+npm run lint    # eslint
+```
