@@ -19,18 +19,11 @@
 
 ## 🎥 Video Walkthrough & Live Demo
 
-<!--
-  YOUTUBE DEMO PLACEHOLDER:
-  Replace the link (https://www.youtube.com/watch?v=YOUR_VIDEO_ID) and image source
-  with your YouTube video URL and thumbnail when published:
-  e.g., https://img.youtube.com/vi/<VIDEO_ID>/maxresdefault.jpg
--->
-
 <div align="center">
-  <a href="https://www.youtube.com/watch?v=YOUR_VIDEO_ID" target="_blank" rel="noopener noreferrer">
-    <img src="./assets/demo-preview.png" alt="System One Operator UI Demo Video" width="850" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.25);" />
+  <a href="https://www.youtube.com/watch?v=7ICOUt2kaoI" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.youtube.com/vi/7ICOUt2kaoI/maxresdefault.jpg" alt="System One Browser Agent Demo Video" width="850" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.25);" />
   </a>
-  <p><em>▶️ <strong>Click above to watch the full walkthrough and benchmark demonstration on YouTube</strong></em></p>
+  <p><em>▶️ <strong><a href="https://www.youtube.com/watch?v=7ICOUt2kaoI">Click above to watch the System One Live Demo on YouTube</a></strong></em></p>
 </div>
 
 ---
