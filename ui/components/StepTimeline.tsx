@@ -27,7 +27,7 @@ export function StepTimeline({ steps, onSelectStep }: StepTimelineProps) {
           <Layers className="w-7 h-7 mb-2 opacity-40" />
           <div className="text-xs font-medium text-[var(--text-secondary)]">No steps yet</div>
           <div className="text-[11px] max-w-[15rem] mt-1">
-            Run a goal or pick a preset to stream dual-process decisions here.
+            Run a goal or pick a quick start to stream dual-process decisions here.
           </div>
         </div>
       ) : (

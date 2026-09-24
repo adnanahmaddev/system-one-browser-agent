@@ -16,19 +16,19 @@ interface ComposerCardProps {
   onChange: (patch: Partial<ComposerForm>) => void;
   isRunning: boolean;
   /**
-   * Starts a run. `override` is merged over the current form, which lets a preset
+   * Starts a run. `override` is merged over the current form, which lets a quick start
    * launch with its own values without waiting for the state update to land.
    */
   onStart: (override?: Partial<ComposerForm>) => void;
   onStop: () => void;
 }
 
-const PRESETS: Array<{ label: string; icon: typeof MapPin; iconClass: string; goal: string; url: string }> = [
+const QUICK_STARTS: Array<{ label: string; icon: typeof MapPin; iconClass: string; goal: string; url: string }> = [
   {
     label: "Google Maps Distance",
     icon: MapPin,
     iconClass: "text-red-500",
-    goal: "Find distance between pcsir phase 1 and cbtl johar town",
+    goal: "Find distance from Romford station to Whitechapel Station",
     url: "https://www.google.com/maps",
   },
   {
@@ -153,8 +153,8 @@ export function ComposerCard({ form, onChange, isRunning, onStart, onStop }: Com
       </div>
 
       <div className="flex items-center flex-wrap gap-2 text-xs">
-        <span className="text-[var(--text-secondary)]">Presets:</span>
-        {PRESETS.map(({ label, icon: Icon, iconClass, goal, url }) => (
+        <span className="text-[var(--text-secondary)]">Quick Starts:</span>
+        {QUICK_STARTS.map(({ label, icon: Icon, iconClass, goal, url }) => (
           <button
             key={label}
             type="button"
